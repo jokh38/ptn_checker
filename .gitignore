@@ -1,0 +1,51 @@
+# Byte-compiled / optimized / C extensions
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+#  Usually these files are written by a CI, but hey, folks love PyInstaller
+#  and it is better to be safe than sorry ;)
+*.manifest
+*.spec
+
+# Pytest
+.pytest_cache/
+.coverage
+.tox/
+
+# mypy
+.mypy_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# venv
+venv/
+.venv/
+
+# output files
+*.pdf
+*.csv
