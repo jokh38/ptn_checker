@@ -1,18 +1,27 @@
 import unittest
 import os
 import numpy as np
+import tempfile
+import shutil
 
 # Add src to path to allow for imports
 import sys
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.log_parser import parse_ptn_file
 
 class TestLogParser(unittest.TestCase):
 
     def setUp(self):
-        # This path is relative to the root of the repository
-        self.ptn_file_path = "Data_ex/2025042401440800/02_0014046_001_002_001.ptn"
+        self.test_dir = tempfile.mkdtemp()
+        self.ptn_file_path = os.path.join(self.test_dir, "test.ptn")
+        # Create a dummy binary .ptn file
+        # The data should be a 1D array of uint16s with a size that is a multiple of 8
+        dummy_data = np.arange(64, dtype='>u2') # 64 is a multiple of 8
+        dummy_data.tofile(self.ptn_file_path)
+
+    def tearDown(self):
+        shutil.rmtree(self.test_dir)
 
     def test_parse_ptn_file_smoke(self):
         """

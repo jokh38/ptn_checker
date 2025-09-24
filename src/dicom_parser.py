@@ -40,19 +40,20 @@ def parse_dcm_file(file_path: str) -> dict:
         raise FileNotFoundError(f"File not found: {file_path}")
     plan = pydicom.dcmread(file_path)
     plan_data = {'beams': {}}
-    for i, beam in enumerate(plan.IonBeamSequence):
+    # Fix: Use BeamSequence instead of IonBeamSequence
+    for i, beam in enumerate(plan.BeamSequence):
         beam_description = getattr(beam, 'BeamDescription', '')
         beam_name = getattr(beam, 'BeamName', '')
         if beam_description == "Site Setup" or beam_name == "SETUP":
             continue
         plan_data['beams'][beam_name] = {'layers': {}}
-        ion_control_points = beam.IonControlPointSequence
+        ion_control_points = beam.ControlPointSequence
         for i in range(0, len(ion_control_points), 2):
             cp_start = ion_control_points[i]
             if (i + 1) >= len(ion_control_points):
                 continue
             cp_end = ion_control_points[i+1]
-            layer_index = cp_start.ControlPointIndex
+            layer_index = int(cp_start.ControlPointIndex)
             if (0x300b, 0x1094) not in cp_start:
                 continue
             pos_map_bytes = cp_start[0x300b, 0x1094].value
