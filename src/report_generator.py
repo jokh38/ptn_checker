@@ -62,64 +62,70 @@ def generate_report(plan_data, all_analysis_results, output_path):
             diff_x = layer_results.get('diff_x', np.array([]))
             diff_y = layer_results.get('diff_y', np.array([]))
 
-            plt.figure(figsize=(6, 4))
-            plt.plot(diff_x, label="X-difference")
-            plt.plot(diff_y, label="Y-difference")
-            plt.title("Position Differences (Plan - Log)")
-            plt.xlabel("Spot Index")
-            plt.ylabel("Difference (mm)")
-            plt.legend()
-            plt.grid(True)
+            fig = plt.figure(figsize=(6, 4))
+            try:
+                plt.plot(diff_x, label="X-difference")
+                plt.plot(diff_y, label="Y-difference")
+                plt.title("Position Differences (Plan - Log)")
+                plt.xlabel("Spot Index")
+                plt.ylabel("Difference (mm)")
+                plt.legend()
+                plt.grid(True)
 
-            img_buffer = io.BytesIO()
-            plt.savefig(img_buffer, format='png')
-            img_buffer.seek(0)
-            story.append(Image(img_buffer, width=5*inch, height=3*inch))
-            plt.close()
+                img_buffer = io.BytesIO()
+                plt.savefig(img_buffer, format='png')
+                img_buffer.seek(0)
+                story.append(Image(img_buffer, width=5*inch, height=3*inch))
+            finally:
+                plt.close(fig)
 
             story.append(Spacer(1, 0.2*inch))
 
             bins = np.arange(-5, 5.01, 0.01)
             bin_centers = (bins[:-1] + bins[1:]) / 2
 
-            plt.figure(figsize=(6, 4))
-            plt.hist(diff_x, bins=bins, density=True, label='X-diff Histogram')
-            if 'hist_fit_x' in layer_results:
-                fit_params = layer_results['hist_fit_x']
-                if fit_params.get('amplitude', 0) > 0:
-                    plt.plot(bin_centers, gaussian(bin_centers, **fit_params),
-                             'r-', label='Gaussian Fit')
-            plt.title("X-Difference Histogram")
-            plt.xlabel("Difference (mm)")
-            plt.ylabel("Probability Density")
-            plt.legend()
-            plt.grid(True)
+            fig = plt.figure(figsize=(6, 4))
+            try:
+                plt.hist(diff_x, bins=bins, density=True, label='X-diff Histogram')
+                if 'hist_fit_x' in layer_results:
+                    fit_params = layer_results['hist_fit_x']
+                    if fit_params.get('amplitude', 0) > 0:
+                        plt.plot(bin_centers, gaussian(bin_centers, **fit_params),
+                                 'r-', label='Gaussian Fit')
+                plt.title("X-Difference Histogram")
+                plt.xlabel("Difference (mm)")
+                plt.ylabel("Probability Density")
+                plt.legend()
+                plt.grid(True)
 
-            img_buffer = io.BytesIO()
-            plt.savefig(img_buffer, format='png')
-            img_buffer.seek(0)
-            story.append(Image(img_buffer, width=5*inch, height=3*inch))
-            plt.close()
+                img_buffer = io.BytesIO()
+                plt.savefig(img_buffer, format='png')
+                img_buffer.seek(0)
+                story.append(Image(img_buffer, width=5*inch, height=3*inch))
+            finally:
+                plt.close(fig)
 
             story.append(Spacer(1, 0.2*inch))
 
-            plt.figure(figsize=(6, 4))
-            plt.hist(diff_y, bins=bins, density=True, label='Y-diff Histogram')
-            if 'hist_fit_y' in layer_results:
-                fit_params = layer_results['hist_fit_y']
-                if fit_params.get('amplitude', 0) > 0:
-                    plt.plot(bin_centers, gaussian(bin_centers, **fit_params),
-                             'r-', label='Gaussian Fit')
-            plt.title("Y-Difference Histogram")
-            plt.xlabel("Difference (mm)")
-            plt.ylabel("Probability Density")
-            plt.legend()
-            plt.grid(True)
+            fig = plt.figure(figsize=(6, 4))
+            try:
+                plt.hist(diff_y, bins=bins, density=True, label='Y-diff Histogram')
+                if 'hist_fit_y' in layer_results:
+                    fit_params = layer_results['hist_fit_y']
+                    if fit_params.get('amplitude', 0) > 0:
+                        plt.plot(bin_centers, gaussian(bin_centers, **fit_params),
+                                 'r-', label='Gaussian Fit')
+                plt.title("Y-Difference Histogram")
+                plt.xlabel("Difference (mm)")
+                plt.ylabel("Probability Density")
+                plt.legend()
+                plt.grid(True)
 
-            img_buffer = io.BytesIO()
-            plt.savefig(img_buffer, format='png')
-            img_buffer.seek(0)
-            story.append(Image(img_buffer, width=5*inch, height=3*inch))
-            plt.close()
+                img_buffer = io.BytesIO()
+                plt.savefig(img_buffer, format='png')
+                img_buffer.seek(0)
+                story.append(Image(img_buffer, width=5*inch, height=3*inch))
+            finally:
+                plt.close(fig)
 
     doc.build(story)

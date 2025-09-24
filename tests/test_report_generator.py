@@ -1,6 +1,7 @@
 import unittest
 import os
 import numpy as np
+from unittest.mock import patch
 
 # Add src to path to allow for imports
 import sys
@@ -50,6 +51,21 @@ class TestReportGenerator(unittest.TestCase):
         """
         generate_report(self.plan_data, self.analysis_results, self.output_path)
         self.assertGreater(os.path.getsize(self.output_path), 0)
+
+    @patch('matplotlib.pyplot.savefig')
+    @patch('matplotlib.pyplot.close')
+    def test_generate_report_closes_plot_on_error(self, mock_close, mock_savefig):
+        """
+        Test that plt.close() is called even if plt.savefig() raises an error.
+        """
+        mock_savefig.side_effect = Exception("Test error")
+
+        # We expect the function to fail because of the mocked error
+        with self.assertRaises(Exception):
+            generate_report(self.plan_data, self.analysis_results, self.output_path)
+
+        # But we want to ensure that plt.close was still called
+        self.assertTrue(mock_close.called)
 
 if __name__ == '__main__':
     unittest.main()
