@@ -1,4 +1,5 @@
 import argparse
+import sys
 import os
 import pydicom
 import glob
@@ -6,7 +7,7 @@ from src.log_parser import parse_ptn_file
 from src.dicom_parser import parse_dcm_file
 from src.calculator import calculate_differences_for_layer
 from src.report_generator import generate_report
-
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 def main():
     parser = argparse.ArgumentParser(
