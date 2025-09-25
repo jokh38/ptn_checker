@@ -59,6 +59,7 @@ def run_analysis(log_dir, dcm_file, output_dir):
 
     report_data = {}
     ptn_file_iter = iter(ptn_files)
+    debug_csv_saved = False  # [debug] Flag to save CSV for only the first layer
 
     for beam_number, beam_data in plan_data_raw['beams'].items():
         beam_name = beam_data.get('name', f"Beam {beam_number}")
@@ -79,7 +80,20 @@ def run_analysis(log_dir, dcm_file, output_dir):
                     continue
 
                 try:
-                    analysis_results = calculate_differences_for_layer(layer_data, log_data_raw)
+                    # [debug] Save CSV for the first processed layer only
+                    save_csv_for_this_layer = not debug_csv_saved
+                    csv_filepath = ""
+                    if save_csv_for_this_layer:
+                        csv_filepath = os.path.join(output_dir, f"debug_data_beam_{beam_number}_layer_{layer_index}.csv")
+
+                    analysis_results = calculate_differences_for_layer(
+                        layer_data,
+                        log_data_raw,
+                        save_to_csv=save_csv_for_this_layer,
+                        csv_filename=csv_filepath
+                    )
+                    if save_csv_for_this_layer:
+                        debug_csv_saved = True
                 except (KeyError, ValueError, TypeError) as e:
                     print(f"Error calculating differences for {beam_name}, Layer {layer_index}: {e}")
                     continue

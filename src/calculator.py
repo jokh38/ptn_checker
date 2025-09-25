@@ -7,13 +7,15 @@ def gaussian(x, amplitude, mean, stddev):
     return amplitude * np.exp(-((x - mean) / stddev)**2 / 2)
 
 
-def calculate_differences_for_layer(plan_layer, log_data):
+def calculate_differences_for_layer(plan_layer, log_data, save_to_csv=False, csv_filename="debug_layer_data.csv"):
     """
     Calculates the differences between planned and actual data for a single layer.
 
     Args:
         plan_layer: A dictionary containing the plan data for a single layer.
         log_data: Parsed data from a PTN log file for the corresponding layer.
+        save_to_csv (bool): If True, saves the interpolated plan and log data to a CSV file.
+        csv_filename (str): The name of the CSV file to save.
 
     Returns:
         A dictionary containing the analysis results for the layer.
@@ -28,11 +30,11 @@ def calculate_differences_for_layer(plan_layer, log_data):
     log_y = log_data['y']
 
     # 1. 초기 데이터 확인
-    print("\n--- [DEBUG] Initial Data Check ---")
-    print(f"Plan X (first 5): {plan_x[:5]}")
-    print(f"Plan Y (first 5): {plan_y[:5]}")
-    print(f"Log X (first 5): {log_x[:5]}")
-    print(f"Log Y (first 5): {log_y[:5]}")
+    # print("\n--- [DEBUG] Initial Data Check ---")
+    # print(f"Plan X (first 5): {plan_x[:5]}")
+    # print(f"Plan Y (first 5): {plan_y[:5]}")
+    # print(f"Log X (first 5): {log_x[:5]}")
+    # print(f"Log Y (first 5): {log_y[:5]}")
 
     if len(plan_mu) == 0 or len(log_mu) == 0:
         return {'error': 'Empty data arrays'}
@@ -51,17 +53,39 @@ def calculate_differences_for_layer(plan_layer, log_data):
     interp_plan_y = np.interp(log_mu_norm, plan_mu_norm, plan_y)
 
     # 2. 보간 후 데이터 확인
-    print("--- [DEBUG] Interpolated Data Check ---")
-    print(f"Interpolated Plan X (first 5): {interp_plan_x[:5]}")
-    print(f"Interpolated Plan Y (first 5): {interp_plan_y[:5]}")
+    # print("--- [DEBUG] Interpolated Data Check ---")
+    # print(f"Interpolated Plan X (first 5): {interp_plan_x[:5]}")
+    # print(f"Interpolated Plan Y (first 5): {interp_plan_y[:5]}")
 
     diff_x = interp_plan_x - log_x
     diff_y = interp_plan_y - log_y
 
     # 3. 최종 차이 값 확인
-    print("--- [DEBUG] Final Difference Check ---")
-    print(f"Difference X (first 5): {diff_x[:5]}")
-    print(f"Difference Y (first 5): {diff_y[:5]}")
+    # print("--- [DEBUG] Final Difference Check ---")
+    # print(f"Difference X (first 5): {diff_x[:5]}")
+    # print(f"Difference Y (first 5): {diff_y[:5]}")
+
+    # 4. CSV 파일로 저장 (요청 시)
+    if save_to_csv:
+        print(f"--- [INFO] Saving data to {csv_filename} ---")
+        # PTN 파일의 모든 8개 위치 정보 포함
+        data_to_save = np.column_stack((
+            log_mu_norm,
+            interp_plan_x,
+            interp_plan_y,
+            log_x,
+            log_y,
+            log_data['x_raw'],
+            log_data['y_raw'],
+            log_data['x_size_raw'],
+            log_data['y_size_raw'],
+            log_data['x_mm'],
+            log_data['y_mm'],
+            log_data['x_size_mm'],
+            log_data['y_size_mm']
+        ))
+        header = "log_mu_norm,interp_plan_x,interp_plan_y,log_x,log_y,x_raw,y_raw,x_size_raw,y_size_raw,x_mm,y_mm,x_size_mm,y_size_mm"
+        np.savetxt(csv_filename, data_to_save, delimiter=",", header=header, comments="")
 
     results['diff_x'] = diff_x
     results['diff_y'] = diff_y
