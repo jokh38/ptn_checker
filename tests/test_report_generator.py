@@ -1,152 +1,110 @@
 import unittest
 import os
 import numpy as np
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, call
 import shutil
-
-# Set matplotlib backend for headless testing
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-# Add src to path to allow for imports
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-# Import the functions to be tested, including the private ones
 from src.report_generator import (
     generate_report,
-    _generate_error_bar_plot,
-    _generate_position_plot
+    _generate_error_bar_plot_for_beam,
+    _generate_per_layer_position_plot,
+    _save_plots_to_pdf_grid
 )
 
 class TestReportGenerator(unittest.TestCase):
 
     def setUp(self):
-        """Set up test data and output directory."""
         self.output_dir = "test_output"
         os.makedirs(self.output_dir, exist_ok=True)
 
-        # Data for helper functions
-        self.mean_diff = {'x': np.array([0.1, 0.2]), 'y': np.array([-0.1, -0.2])}
-        self.std_diff = {'x': np.array([0.5, 0.6]), 'y': np.array([0.4, 0.5])}
-        self.plan_positions = [
-            np.array([[1, 2], [3, 4]]),  # Layer 1
-            np.array([[5, 6], [7, 8]])   # Layer 2
-        ]
-        self.log_positions = [
-            np.array([[1.1, 2.1], [3.1, 4.1], [1.1, 2.1], [3.1, 4.1], [1.1, 2.1], [3.1, 4.1], [1.1, 2.1], [3.1, 4.1], [1.1, 2.1], [3.1, 4.1], [1.1, 2.1]]), # Layer 1
-            np.array([[5.1, 6.1], [7.1, 8.1]])   # Layer 2
-        ]
-
-        # Data for the main generate_report function
-        self.plan_data = {
-            'mean_diff': self.mean_diff,
-            'std_diff': self.std_diff,
-            'positions': self.plan_positions
-        }
-        self.log_data = {
-            'positions': self.log_positions
+        self.report_data = {
+            "Beam 1": {
+                "layers": [
+                    {
+                        "layer_index": 0,
+                        "results": {
+                            "mean_diff_x": 0.1, "mean_diff_y": -0.1,
+                            "std_diff_x": 0.5, "std_diff_y": 0.4,
+                            "plan_positions": np.array([[1, 2], [3, 4]]),
+                            "log_positions": np.array([[1.1, 2.1], [3.1, 4.1]])
+                        }
+                    },
+                    {
+                        "layer_index": 1,
+                        "results": {
+                            "mean_diff_x": 0.2, "mean_diff_y": -0.2,
+                            "std_diff_x": 0.6, "std_diff_y": 0.5,
+                            "plan_positions": np.array([[5, 6], [7, 8]]),
+                            "log_positions": np.array([[5.1, 6.1], [7.1, 8.1]])
+                        }
+                    }
+                ]
+            }
         }
 
     def tearDown(self):
-        """Remove the output directory after tests."""
         if os.path.exists(self.output_dir):
             shutil.rmtree(self.output_dir)
 
-    def test_generate_error_bar_plot_returns_figure(self):
-        """Test the _generate_error_bar_plot helper returns a Figure object."""
-        # No mocks needed, we are testing the function's output directly
-        fig = _generate_error_bar_plot(self.mean_diff, self.std_diff)
+    def test_generate_error_bar_plot_for_beam(self):
+        beam_name = "Beam 1"
+        layers_data = self.report_data[beam_name]['layers']
+        fig = _generate_error_bar_plot_for_beam(beam_name, layers_data)
         self.assertIsInstance(fig, plt.Figure)
-        plt.close(fig) # Prevent figure from displaying in test runners
+        plt.close(fig)
 
-    def test_generate_position_plot_returns_figure(self):
-        """Test the _generate_position_plot helper returns a Figure object."""
-        fig = _generate_position_plot(self.plan_positions, self.log_positions)
+    def test_generate_per_layer_position_plot(self):
+        layer_data = self.report_data["Beam 1"]['layers'][0]
+        fig = _generate_per_layer_position_plot(
+            layer_data['results']['plan_positions'],
+            layer_data['results']['log_positions'],
+            layer_data['layer_index'],
+            "Beam 1"
+        )
         self.assertIsInstance(fig, plt.Figure)
-        plt.close(fig) # Prevent figure from displaying
+        plt.close(fig)
 
-    @patch('src.report_generator._generate_position_plot')
-    @patch('src.report_generator._generate_error_bar_plot')
-    def test_generate_report_calls_helpers(self, mock_error_plot, mock_position_plot):
-        """Test that the main report function calls its helper plot functions."""
-        # Make the mocked helpers return a dummy figure, because the main function
-        # will try to call pdf.savefig() on their return value.
-        mock_figure = plt.figure()
-        mock_error_plot.return_value = mock_figure
-        mock_position_plot.return_value = mock_figure
+    def test_save_plots_to_pdf_grid(self):
+        plots = [plt.figure(), plt.figure()]
+        for fig in plots:
+            fig.add_subplot(1, 1, 1)  # Add axes to the figure
 
-        generate_report(self.plan_data, self.log_data, self.output_dir)
+        with patch('matplotlib.backends.backend_pdf.PdfPages') as mock_pdf_pages:
+            mock_pdf = mock_pdf_pages.return_value
+            _save_plots_to_pdf_grid(mock_pdf, plots, "Beam 1")
+            mock_pdf.savefig.assert_called_once()
+        plt.close('all')
 
-        mock_error_plot.assert_called_once_with(
-            self.plan_data['mean_diff'],
-            self.plan_data['std_diff']
-        )
-        mock_position_plot.assert_called_once_with(
-            self.plan_data['positions'],
-            self.log_data['positions']
-        )
-        plt.close(mock_figure)
+    @patch('src.report_generator._generate_error_bar_plot_for_beam')
+    @patch('src.report_generator._generate_per_layer_position_plot')
+    @patch('src.report_generator._save_plots_to_pdf_grid')
+    def test_generate_report_calls_helpers(self, mock_save_grid, mock_per_layer_plot, mock_error_bar_plot):
+        mock_fig = plt.figure()
+        mock_error_bar_plot.return_value = mock_fig
+        mock_per_layer_plot.return_value = mock_fig
 
-    def test_output_directory_creation(self):
-        """Test that generate_report creates the output directory if it doesn't exist."""
-        temp_output_dir = "temp_test_dir_for_creation"
-        if os.path.exists(temp_output_dir):
-            shutil.rmtree(temp_output_dir)
+        generate_report(self.report_data, self.output_dir)
 
-        # We still need to mock the helpers, and they need to return a figure
-        with patch('src.report_generator._generate_error_bar_plot') as mock_err, \
-             patch('src.report_generator._generate_position_plot') as mock_pos:
-            mock_figure = plt.figure()
-            mock_err.return_value = mock_figure
-            mock_pos.return_value = mock_figure
-            generate_report(self.plan_data, self.log_data, temp_output_dir)
-            plt.close(mock_figure)
+        mock_error_bar_plot.assert_called_once_with("Beam 1", self.report_data["Beam 1"]['layers'])
 
-        self.assertTrue(os.path.exists(temp_output_dir))
-        shutil.rmtree(temp_output_dir)
+        self.assertEqual(mock_per_layer_plot.call_count, 2)
+        mock_save_grid.assert_called_once()
+
+        plt.close(mock_fig)
 
     def test_generate_report_creates_pdf(self):
-        """
-        Test that `generate_report` creates a PDF file in the output directory.
-        """
         expected_pdf_path = os.path.join(self.output_dir, "analysis_report.pdf")
         if os.path.exists(expected_pdf_path):
             os.remove(expected_pdf_path)
 
-        # This is a real run, so no mocks needed
-        generate_report(self.plan_data, self.log_data, self.output_dir)
-        self.assertTrue(os.path.exists(expected_pdf_path), "PDF file was not created.")
-
-    @patch('src.report_generator.PdfPages', autospec=True)
-    @patch('src.report_generator._generate_position_plot')
-    @patch('src.report_generator._generate_error_bar_plot')
-    def test_generate_report_uses_pdfpages(self, mock_err_plot, mock_pos_plot, mock_pdf_pages):
-        """
-        Test that `generate_report` uses the PdfPages backend to save figures.
-        """
-        # Mock the helper functions to return a real figure object
-        mock_figure = plt.figure()
-        mock_err_plot.return_value = mock_figure
-        mock_pos_plot.return_value = mock_figure
-
-        # Mock the PdfPages object itself to check its methods
-        mock_pdf_instance = mock_pdf_pages.return_value.__enter__.return_value
-
-        generate_report(self.plan_data, self.log_data, self.output_dir)
-
-        # Check that PdfPages was instantiated with the correct path
-        mock_pdf_pages.assert_called_once_with(os.path.join(self.output_dir, "analysis_report.pdf"))
-
-        # Check that savefig was called on the pdf object for each generated plot
-        # 1 for error bar + 1 for combined position + 2 for the two layers
-        expected_call_count = 1 + 1 + len(self.plan_positions)
-        self.assertEqual(mock_pdf_instance.savefig.call_count, expected_call_count)
-        mock_pdf_instance.savefig.assert_any_call(mock_figure)
-
-        plt.close(mock_figure)
-
+        generate_report(self.report_data, self.output_dir)
+        self.assertTrue(os.path.exists(expected_pdf_path))
 
 if __name__ == '__main__':
     unittest.main()

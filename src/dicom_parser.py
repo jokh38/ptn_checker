@@ -48,7 +48,10 @@ def parse_dcm_file(file_path: str) -> dict:
         beam_number = getattr(beam, 'BeamNumber', i)
         if beam_description == "Site Setup" or beam_name == "SETUP":
             continue
-        plan_data['beams'][beam_number] = {'layers': {}}
+        plan_data['beams'][beam_number] = {
+            'name': beam_name,
+            'layers': {}
+        }
         ion_control_points = beam.IonControlPointSequence
         for i in range(0, len(ion_control_points), 2):
             cp_start = ion_control_points[i]

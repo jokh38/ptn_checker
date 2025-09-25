@@ -57,19 +57,17 @@ def run_analysis(log_dir, dcm_file, output_dir):
     if not ptn_files:
         raise FileNotFoundError(f"No .ptn files found in directory {log_dir}")
 
-    # Data structures for the new report generator
-    mean_diffs = {'x': [], 'y': []}
-    std_diffs = {'x': [], 'y': []}
-    all_plan_positions = []
-    all_log_positions = []
-
+    report_data = {}
     ptn_file_iter = iter(ptn_files)
 
     for beam_number, beam_data in plan_data_raw['beams'].items():
+        beam_name = beam_data.get('name', f"Beam {beam_number}")
+        report_data[beam_name] = {'layers': []}
+
         for layer_index, layer_data in beam_data.get('layers', {}).items():
             try:
                 ptn_file = next(ptn_file_iter)
-                print(f"Processing Beam {beam_number}, Layer {layer_index} with {os.path.basename(ptn_file)}")
+                print(f"Processing {beam_name}, Layer {layer_index} with {os.path.basename(ptn_file)}")
 
                 try:
                     log_data_raw = parse_ptn_file(ptn_file, config)
@@ -83,38 +81,27 @@ def run_analysis(log_dir, dcm_file, output_dir):
                 try:
                     analysis_results = calculate_differences_for_layer(layer_data, log_data_raw)
                 except (KeyError, ValueError, TypeError) as e:
-                    print(f"Error calculating differences for Beam {beam_number}, Layer {layer_index}: {e}")
+                    print(f"Error calculating differences for {beam_name}, Layer {layer_index}: {e}")
                     continue
 
                 if 'error' in analysis_results:
                     print(f"Skipping layer due to error: {analysis_results['error']}")
                     continue
 
-                # Aggregate data for plots
-                mean_diffs['x'].append(analysis_results['mean_diff_x'])
-                mean_diffs['y'].append(analysis_results['mean_diff_y'])
-                std_diffs['x'].append(analysis_results['std_diff_x'])
-                std_diffs['y'].append(analysis_results['std_diff_y'])
-                all_plan_positions.append(analysis_results['plan_positions'])
-                all_log_positions.append(analysis_results['log_positions'])
+                report_data[beam_name]['layers'].append({
+                    'layer_index': layer_index,
+                    'results': analysis_results
+                })
 
             except StopIteration:
-                print(f"Warning: No more PTN files to process for layer {layer_index} of beam {beam_number}.")
+                print(f"Warning: No more PTN files to process for layer {layer_index} of beam {beam_name}.")
                 break
 
-    if not all_plan_positions:
+    if not any(data['layers'] for data in report_data.values()):
         raise ValueError("No analysis results were generated. Check logs for warnings.")
 
-    # Prepare data dictionaries for the report generator
-    final_plan_data = {
-        'mean_diff': {'x': np.array(mean_diffs['x']), 'y': np.array(mean_diffs['y'])},
-        'std_diff': {'x': np.array(std_diffs['x']), 'y': np.array(std_diffs['y'])},
-        'positions': all_plan_positions
-    }
-    final_log_data = {'positions': all_log_positions}
-
     print(f"Generating PDF report in directory: {output_dir}")
-    generate_report(final_plan_data, final_log_data, output_dir)
+    generate_report(report_data, output_dir)
     print("Done.")
 
 def main():

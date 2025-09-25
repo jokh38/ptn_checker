@@ -7,106 +7,139 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def _generate_error_bar_plot(mean_diff, std_diff):
-    """Generates an error bar plot figure for x and y position differences."""
-    num_layers = len(mean_diff['x'])
-    layers = np.arange(1, num_layers + 1)
+def _generate_error_bar_plot_for_beam(beam_name, layers_data):
+    """Generates an error bar plot figure for a single beam."""
+    num_layers = len(layers_data)
+    layer_indices = [layer['layer_index'] for layer in layers_data]
+    mean_diff_x = [layer['results']['mean_diff_x'] for layer in layers_data]
+    mean_diff_y = [layer['results']['mean_diff_y'] for layer in layers_data]
+    std_diff_x = [layer['results']['std_diff_x'] for layer in layers_data]
+    std_diff_y = [layer['results']['std_diff_y'] for layer in layers_data]
 
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
+    fig.suptitle(f'Position Difference (plan - log) - {beam_name}', fontsize=16)
 
     # X-position difference plot
-    ax1.errorbar(layers, mean_diff['x'], yerr=std_diff['x'], fmt='o-', capsize=5)
-    ax1.set_title('X Position Difference (plan - log)')
+    ax1.errorbar(layer_indices, mean_diff_x, yerr=std_diff_x, fmt='o-', capsize=5)
+    ax1.set_title('X Position Difference')
     ax1.set_xlabel('Layer Number')
     ax1.set_ylabel('Difference (mm)')
     ax1.grid(True)
 
     # Y-position difference plot
-    ax2.errorbar(layers, mean_diff['y'], yerr=std_diff['y'], fmt='o-', capsize=5, color='orange')
-    ax2.set_title('Y Position Difference (plan - log)')
+    ax2.errorbar(layer_indices, mean_diff_y, yerr=std_diff_y, fmt='o-', capsize=5, color='orange')
+    ax2.set_title('Y Position Difference')
     ax2.set_xlabel('Layer Number')
     ax2.set_ylabel('Difference (mm)')
     ax2.grid(True)
 
-    fig.tight_layout()
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
     return fig
 
-def _generate_position_plot(plan_positions, log_positions):
-    """Generates a 2D position comparison plot figure for all layers combined."""
-    fig, ax = plt.subplots(figsize=(10, 10))
+def _generate_per_layer_position_plot(plan_positions, log_positions, layer_index, beam_name):
+    """Generates a 2D position comparison plot figure for a single layer with outlier rejection."""
+    margin = 20  # 2cm margin
+    min_coords = plan_positions.min(axis=0) - margin
+    max_coords = plan_positions.max(axis=0) + margin
 
-    plan_labeled = False
-    log_labeled = False
+    # Filter log positions
+    filtered_log_positions = log_positions[
+        (log_positions[:, 0] >= min_coords[0]) & (log_positions[:, 0] <= max_coords[0]) &
+        (log_positions[:, 1] >= min_coords[1]) & (log_positions[:, 1] <= max_coords[1])
+    ]
 
-    for layer_plan, layer_log in zip(plan_positions, log_positions):
-        ax.plot(layer_plan[:, 0], layer_plan[:, 1], 'r-', linewidth=1, label='Plan' if not plan_labeled else "")
-        plan_labeled = True
-
-        sampled_log = layer_log[::10]
-        ax.scatter(sampled_log[:, 0], sampled_log[:, 1], c='b', marker='+', s=10, label='Log' if not log_labeled else "")
-        log_labeled = True
-
-    _setup_plot_axes(ax, '2D Position Comparison (All Layers)')
-    return fig
-
-def _setup_plot_axes(ax, title):
-    """Helper function to set up common plot attributes."""
-    ax.set_xlabel('X Position (mm)')
-    ax.set_ylabel('Y Position (mm)')
-    ax.set_title(title)
-    ax.legend()
-    ax.grid(True)
-    ax.set_aspect('equal', adjustable='box')
-
-def _generate_per_layer_position_plot(plan_positions, log_positions, layer_index):
-    """Generates a 2D position comparison plot figure for a single layer."""
-    fig, ax = plt.subplots(figsize=(10, 10))
+    fig, ax = plt.subplots(figsize=(8, 8))
 
     ax.plot(plan_positions[:, 0], plan_positions[:, 1], 'r-', linewidth=1, label='Plan')
 
-    sampled_log = log_positions[::10]
-    ax.scatter(sampled_log[:, 0], sampled_log[:, 1], c='b', marker='+', s=10, label='Log')
+    if filtered_log_positions.size > 0:
+        sampled_log = filtered_log_positions[::10] if len(filtered_log_positions) > 10 else filtered_log_positions
+        ax.scatter(sampled_log[:, 0], sampled_log[:, 1], c='b', marker='+', s=10, label='Log')
+    else:
+        logger.warning(f"No log data within the margin for layer {layer_index} of {beam_name}.")
 
-    _setup_plot_axes(ax, f'2D Position Comparison - Layer {layer_index + 1}')
+    ax.set_xlabel('X Position (mm)')
+    ax.set_ylabel('Y Position (mm)')
+    ax.set_title(f'2D Position - Layer {layer_index + 1}')
+    ax.legend()
+    ax.grid(True)
+    ax.set_aspect('equal', adjustable='box')
+    ax.set_xlim(min_coords[0], max_coords[0])
+    ax.set_ylim(min_coords[1], max_coords[1])
+
     return fig
 
+def _save_plots_to_pdf_grid(pdf, plots, beam_name):
+    """Saves up to 4 plots to a single PDF page in a 2x2 grid."""
+    fig = plt.figure(figsize=(12, 12))
+    fig.suptitle(f'2D Position Comparison - {beam_name}', fontsize=16)
 
-def generate_report(plan_data, log_data, output_dir):
+    for i, plot_fig in enumerate(plots):
+        if i >= 4:
+            break
+
+        # This is a workaround to copy the content of the existing plot figure to a subplot
+        ax_src = plot_fig.axes[0]
+        ax_dest = fig.add_subplot(2, 2, i + 1)
+
+        for line in ax_src.get_lines():
+            ax_dest.plot(line.get_xdata(), line.get_ydata(), color=line.get_color(),
+                         linestyle=line.get_linestyle(), linewidth=line.get_linewidth(),
+                         label=line.get_label())
+
+        for collection in ax_src.collections:
+             ax_dest.scatter(collection.get_offsets()[:, 0], collection.get_offsets()[:, 1],
+                           c=collection.get_facecolors(), marker=collection.get_paths()[0],
+                           s=collection.get_sizes(), label=collection.get_label())
+
+        ax_dest.set_title(ax_src.get_title())
+        ax_dest.set_xlabel(ax_src.get_xlabel())
+        ax_dest.set_ylabel(ax_src.get_ylabel())
+        ax_dest.grid(True)
+        ax_dest.legend()
+        ax_dest.set_aspect('equal', adjustable='box')
+        ax_dest.set_xlim(ax_src.get_xlim())
+        ax_dest.set_ylim(ax_src.get_ylim())
+
+        plt.close(plot_fig) # Close the original figure to save memory
+
+    fig.tight_layout(rect=[0, 0.03, 1, 0.95])
+    pdf.savefig(fig)
+    plt.close(fig)
+
+def generate_report(report_data, output_dir):
     """
-    Generates a multi-page PDF report with analysis plots.
-
-    Args:
-        plan_data (dict): A dictionary containing data from the treatment plan.
-        log_data (dict): A dictionary containing data from the machine logs.
-        output_dir (str): The directory where the PDF report will be saved.
+    Generates a multi-page PDF report with analysis plots organized by beam.
     """
     os.makedirs(output_dir, exist_ok=True)
     pdf_path = os.path.join(output_dir, "analysis_report.pdf")
 
     with PdfPages(pdf_path) as pdf:
-        # 1. Generate and save the error bar plot
-        if 'mean_diff' in plan_data and 'std_diff' in plan_data:
-            error_bar_fig = _generate_error_bar_plot(plan_data['mean_diff'], plan_data['std_diff'])
+        for beam_name, beam_data in report_data.items():
+            if not beam_data['layers']:
+                logger.warning(f"No layers with analysis results for beam '{beam_name}'. Skipping.")
+                continue
+
+            # 1. Generate and save the error bar plot for the beam
+            error_bar_fig = _generate_error_bar_plot_for_beam(beam_name, beam_data['layers'])
             pdf.savefig(error_bar_fig)
             plt.close(error_bar_fig)
-            logger.info("Error bar plot added to PDF.")
-        else:
-            logger.warning("Mean/Std difference data not available for error bar plot.")
+            logger.info(f"Error bar plot for beam '{beam_name}' added to PDF.")
 
-        # 2. Generate and save the combined 2D position comparison plot
-        if 'positions' in plan_data and 'positions' in log_data:
-            position_fig = _generate_position_plot(plan_data['positions'], log_data['positions'])
-            pdf.savefig(position_fig)
-            plt.close(position_fig)
-            logger.info("Combined position comparison plot added to PDF.")
+            # 2. Generate per-layer 2D position plots for the beam
+            layer_plots = []
+            for layer_data in beam_data['layers']:
+                layer_index = layer_data['layer_index']
+                plan_pos = layer_data['results']['plan_positions']
+                log_pos = layer_data['results']['log_positions']
 
-            # 3. Generate and save per-layer 2D position plots
-            for i, (plan_pos, log_pos) in enumerate(zip(plan_data['positions'], log_data['positions'])):
-                layer_fig = _generate_per_layer_position_plot(plan_pos, log_pos, i)
-                pdf.savefig(layer_fig)
-                plt.close(layer_fig)
-                logger.info(f"Layer {i+1} position plot added to PDF.")
-        else:
-            logger.warning("Position data not available for 2D position plot.")
+                layer_fig = _generate_per_layer_position_plot(plan_pos, log_pos, layer_index, beam_name)
+                layer_plots.append(layer_fig)
+
+            # 3. Save layer plots to PDF in a grid
+            for i in range(0, len(layer_plots), 4):
+                chunk = layer_plots[i:i+4]
+                _save_plots_to_pdf_grid(pdf, chunk, beam_name)
+                logger.info(f"Page with {len(chunk)} layer plots for beam '{beam_name}' added to PDF.")
 
     logger.info(f"Analysis report saved to {pdf_path}")
