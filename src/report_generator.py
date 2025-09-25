@@ -67,17 +67,17 @@ def _generate_per_layer_position_plot(plan_positions, log_positions, layer_index
     return fig
 
 def _save_plots_to_pdf_grid(pdf, plots, beam_name):
-    """Saves up to 4 plots to a single PDF page in a 2x2 grid."""
+    """Saves up to 6 plots to a single PDF page in a 3x2 grid."""
     fig = plt.figure(figsize=(8.27, 11.69))
     fig.suptitle(f'2D Position Comparison - {beam_name}', fontsize=16)
 
     for i, plot_fig in enumerate(plots):
-        if i >= 4:
+        if i >= 6:
             break
 
         # This is a workaround to copy the content of the existing plot figure to a subplot
         ax_src = plot_fig.axes[0]
-        ax_dest = fig.add_subplot(2, 2, i + 1)
+        ax_dest = fig.add_subplot(3, 2, i + 1)
 
         for line in ax_src.get_lines():
             ax_dest.plot(line.get_xdata(), line.get_ydata(), color=line.get_color(),
@@ -138,20 +138,21 @@ def generate_report(report_data, output_dir):
                 global_min_coords = np.array([0, 0])
                 global_max_coords = np.array([100, 100])
 
-            # 3. Generate per-layer 2D position plots for the beam
-            layer_plots = []
-            for layer_data in beam_data['layers']:
-                layer_index = layer_data['layer_index']
-                plan_pos = layer_data['results']['plan_positions']
-                log_pos = layer_data['results']['log_positions']
+            # 3. Generate and save per-layer 2D position plots in batches of 6
+            layers_list = beam_data['layers']
+            for i in range(0, len(layers_list), 6):
+                batch_layers = layers_list[i:i+6]
+                layer_plots = []
 
-                layer_fig = _generate_per_layer_position_plot(plan_pos, log_pos, layer_index, beam_name, global_min_coords, global_max_coords)
-                layer_plots.append(layer_fig)
+                for layer_data in batch_layers:
+                    layer_index = layer_data['layer_index']
+                    plan_pos = layer_data['results']['plan_positions']
+                    log_pos = layer_data['results']['log_positions']
 
-            # 4. Save layer plots to PDF in a grid
-            for i in range(0, len(layer_plots), 4):
-                chunk = layer_plots[i:i+4]
-                _save_plots_to_pdf_grid(pdf, chunk, beam_name)
-                # logger.info(f"Page with {len(chunk)} layer plots for beam '{beam_name}' added to PDF.")
+                    layer_fig = _generate_per_layer_position_plot(plan_pos, log_pos, layer_index, beam_name, global_min_coords, global_max_coords)
+                    layer_plots.append(layer_fig)
+
+                # Save this batch to PDF and immediately close the figures
+                _save_plots_to_pdf_grid(pdf, layer_plots, beam_name)
 
     logger.info(f"Analysis report saved to {pdf_path}")

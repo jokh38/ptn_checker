@@ -43,6 +43,51 @@ class TestReportGenerator(unittest.TestCase):
                             "plan_positions": np.array([[5, 6], [7, 8]]),
                             "log_positions": np.array([[5.1, 6.1], [7.1, 8.1]])
                         }
+                    },
+                    {
+                        "layer_index": 2,
+                        "results": {
+                            "mean_diff_x": 0.3, "mean_diff_y": -0.3,
+                            "std_diff_x": 0.7, "std_diff_y": 0.6,
+                            "plan_positions": np.array([[9, 10], [11, 12]]),
+                            "log_positions": np.array([[9.1, 10.1], [11.1, 12.1]])
+                        }
+                    },
+                    {
+                        "layer_index": 3,
+                        "results": {
+                            "mean_diff_x": 0.4, "mean_diff_y": -0.4,
+                            "std_diff_x": 0.8, "std_diff_y": 0.7,
+                            "plan_positions": np.array([[13, 14], [15, 16]]),
+                            "log_positions": np.array([[13.1, 14.1], [15.1, 16.1]])
+                        }
+                    },
+                    {
+                        "layer_index": 4,
+                        "results": {
+                            "mean_diff_x": 0.5, "mean_diff_y": -0.5,
+                            "std_diff_x": 0.9, "std_diff_y": 0.8,
+                            "plan_positions": np.array([[17, 18], [19, 20]]),
+                            "log_positions": np.array([[17.1, 18.1], [19.1, 20.1]])
+                        }
+                    },
+                    {
+                        "layer_index": 5,
+                        "results": {
+                            "mean_diff_x": 0.6, "mean_diff_y": -0.6,
+                            "std_diff_x": 1.0, "std_diff_y": 0.9,
+                            "plan_positions": np.array([[21, 22], [23, 24]]),
+                            "log_positions": np.array([[21.1, 22.1], [23.1, 24.1]])
+                        }
+                    },
+                    {
+                        "layer_index": 6,
+                        "results": {
+                            "mean_diff_x": 0.7, "mean_diff_y": -0.7,
+                            "std_diff_x": 1.1, "std_diff_y": 1.0,
+                            "plan_positions": np.array([[25, 26], [27, 28]]),
+                            "log_positions": np.array([[25.1, 26.1], [27.1, 28.1]])
+                        }
                     }
                 ]
             }
@@ -76,7 +121,7 @@ class TestReportGenerator(unittest.TestCase):
         plt.close(fig)
 
     def test_save_plots_to_pdf_grid(self):
-        plots = [plt.figure(), plt.figure()]
+        plots = [plt.figure(), plt.figure(), plt.figure(), plt.figure(), plt.figure(), plt.figure()]
         for fig in plots:
             fig.add_subplot(1, 1, 1)  # Add axes to the figure
 
@@ -98,8 +143,8 @@ class TestReportGenerator(unittest.TestCase):
 
         mock_error_bar_plot.assert_called_once_with("Beam 1", self.report_data["Beam 1"]['layers'])
 
-        self.assertEqual(mock_per_layer_plot.call_count, 2)
-        mock_save_grid.assert_called_once()
+        self.assertEqual(mock_per_layer_plot.call_count, 7)
+        self.assertEqual(mock_save_grid.call_count, 2)
 
         plt.close(mock_fig)
 
@@ -110,6 +155,21 @@ class TestReportGenerator(unittest.TestCase):
 
         generate_report(self.report_data, self.output_dir)
         self.assertTrue(os.path.exists(expected_pdf_path))
+
+    @patch('src.report_generator._save_plots_to_pdf_grid')
+    def test_generate_report_batches_correctly(self, mock_save_grid):
+        generate_report(self.report_data, self.output_dir)
+
+        # With 7 layers, should create 2 batches: first with 6 plots, second with 1 plot
+        self.assertEqual(mock_save_grid.call_count, 2)
+
+        # First call should have 6 plots
+        first_call_args = mock_save_grid.call_args_list[0][0]
+        self.assertEqual(len(first_call_args[1]), 6)
+
+        # Second call should have 1 plot
+        second_call_args = mock_save_grid.call_args_list[1][0]
+        self.assertEqual(len(second_call_args[1]), 1)
 
 if __name__ == '__main__':
     unittest.main()
