@@ -39,14 +39,16 @@ def parse_dcm_file(file_path: str) -> dict:
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"File not found: {file_path}")
     plan = pydicom.dcmread(file_path)
-    plan_data = {'beams': {}}
+    machine_name = getattr(plan.IonBeamSequence[0], 'TreatmentMachineName', 'UNKNOWN')
+    plan_data = {'beams': {}, 'machine_name': machine_name}
     # Fix: Use BeamSequence instead of IonBeamSequence
     for i, beam in enumerate(plan.IonBeamSequence):
         beam_description = getattr(beam, 'BeamDescription', '')
         beam_name = getattr(beam, 'BeamName', '')
+        beam_number = getattr(beam, 'BeamNumber', i)
         if beam_description == "Site Setup" or beam_name == "SETUP":
             continue
-        plan_data['beams'][beam_name] = {'layers': {}}
+        plan_data['beams'][beam_number] = {'layers': {}}
         ion_control_points = beam.IonControlPointSequence
         for i in range(0, len(ion_control_points), 2):
             cp_start = ion_control_points[i]
@@ -77,7 +79,7 @@ def parse_dcm_file(file_path: str) -> dict:
                        for w in weights]
             else:
                 mus = [0.0] * len(weights)
-            plan_data['beams'][beam_name]['layers'][layer_index] = {
+            plan_data['beams'][beam_number]['layers'][layer_index] = {
                 'positions': np.array(positions),
                 'mu': np.array(mus),
                 'cumulative_mu': np.cumsum(mus)

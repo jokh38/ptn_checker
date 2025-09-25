@@ -6,6 +6,7 @@ from src.log_parser import parse_ptn_file
 from src.dicom_parser import parse_dcm_file
 from src.calculator import calculate_differences_for_layer
 from src.report_generator import generate_report
+from src.config_loader import parse_scv_init
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -29,6 +30,21 @@ def run_analysis(log_dir, dcm_file, output_path):
     if not plan_data or 'beams' not in plan_data or not plan_data['beams']:
         raise ValueError("Failed to parse DICOM file or it contains no beam data.")
 
+    machine_name = plan_data.get('machine_name', 'UNKNOWN')
+    if "G1" in machine_name:
+        config_file = "scv_init_G1.txt"
+    elif "G2" in machine_name:
+        config_file = "scv_init_G2.txt"
+    else:
+        # Default or error
+        raise ValueError(f"Could not determine config file for machine: {machine_name}")
+
+    config_path = os.path.join(os.path.dirname(__file__) or '.', config_file)
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+
+    config = parse_scv_init(config_path)
+
     dcm = pydicom.dcmread(dcm_file)
     plan_data['patient_name'] = str(dcm.PatientName)
     plan_data['patient_id'] = dcm.PatientID
@@ -40,23 +56,23 @@ def run_analysis(log_dir, dcm_file, output_path):
     all_analysis_results = {}
     ptn_file_iter = iter(ptn_files)
 
-    for beam_name, beam_data in plan_data['beams'].items():
-        all_analysis_results[beam_name] = {}
+    for beam_number, beam_data in plan_data['beams'].items():
+        all_analysis_results[beam_number] = {}
         for layer_index, layer_data in beam_data['layers'].items():
             try:
                 ptn_file = next(ptn_file_iter)
-                print(f"Processing Beam {beam_name}, Layer {layer_index} with {os.path.basename(ptn_file)}")
+                print(f"Processing Beam {beam_number}, Layer {layer_index} with {os.path.basename(ptn_file)}")
 
-                log_data = parse_ptn_file(ptn_file)
+                log_data = parse_ptn_file(ptn_file, config)
                 if not log_data:
                     print(f"Warning: Could not parse PTN file or it is empty: {ptn_file}")
                     continue
 
                 analysis_results = calculate_differences_for_layer(layer_data, log_data)
-                all_analysis_results[beam_name][layer_index] = analysis_results
+                all_analysis_results[beam_number][layer_index] = analysis_results
 
             except StopIteration:
-                print(f"Warning: No more PTN files to process for layer {layer_index} of beam {beam_name}.")
+                print(f"Warning: No more PTN files to process for layer {layer_index} of beam {beam_number}.")
                 break
 
     if not all_analysis_results:
