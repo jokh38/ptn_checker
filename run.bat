@@ -1,1 +1,1 @@
-python main.py --log_dir "C:\MOQUI_SMC\ptn_checker\Data_ex\1.2.840.113854.19.1.19271.1" --dcm_file "C:\MOQUI_SMC\ptn_checker\Data_ex\1.2.840.113854.19.1.19271.1\RP.1.2.840.113854.241506614174277151614979936366782948539.1.dcm" --output "rep"
+python main.py --log_dir "C:\MOQUI_SMC\ptn_checker\Data_ex\1.2.840.113854.19.1.19271.1" --dcm_file "C:\MOQUI_SMC\ptn_checker\Data_ex\1.2.840.113854.19.1.19271.1\RP.1.2.840.113854.241506614174277151614979936366782948539.1.dcm" --output "report"

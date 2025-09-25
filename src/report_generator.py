@@ -121,7 +121,7 @@ def generate_report(report_data, output_dir):
             error_bar_fig = _generate_error_bar_plot_for_beam(beam_name, beam_data['layers'])
             pdf.savefig(error_bar_fig)
             plt.close(error_bar_fig)
-            logger.info(f"Error bar plot for beam '{beam_name}' added to PDF.")
+            logger.info(f"Plot data for Beam '{beam_name}' added to PDF.")
 
             # 2. Calculate global coordinate bounds for the beam
             all_plan_positions = []

@@ -98,7 +98,7 @@ def parse_ptn_file(file_path: str, config_params: dict) -> dict:
     # 10. Conditionally filter data based on FILTERED_BEAM_ON_OFF setting
     if filtered_beam_enabled:
         # Filter data to include only "Beam On" states (beam_on_off == 1)
-        beam_on_mask = beam_on_off_col == 1
+        beam_on_mask = beam_on_off_col > 2**15 + 2**14  # Beam On if bit 15 and bit 14 are set
 
         # Apply mask to all data arrays
         filtered_time = time_column.flatten()[beam_on_mask]

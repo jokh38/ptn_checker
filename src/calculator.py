@@ -77,14 +77,12 @@ def calculate_differences_for_layer(plan_layer, log_data, save_to_csv=False, csv
             log_y,
             log_data['x_raw'],
             log_data['y_raw'],
-            log_data['x_size_raw'],
-            log_data['y_size_raw'],
             log_data['x_mm'],
             log_data['y_mm'],
-            log_data['x_size_mm'],
-            log_data['y_size_mm']
+            log_data['layer_num'],
+            log_data['beam_on_off']
         ))
-        header = "log_mu_norm,interp_plan_x,interp_plan_y,log_x,log_y,x_raw,y_raw,x_size_raw,y_size_raw,x_mm,y_mm,x_size_mm,y_size_mm"
+        header = "log_mu_norm,interp_plan_x,interp_plan_y,log_x,log_y,x_raw,y_raw,x_mm,y_mm,layer_num,beam_on_off"
         np.savetxt(csv_filename, data_to_save, delimiter=",", header=header, comments="")
 
     results['diff_x'] = diff_x

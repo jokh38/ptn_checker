@@ -68,7 +68,7 @@ def run_analysis(log_dir, dcm_file, output_dir):
         for layer_index, layer_data in beam_data.get('layers', {}).items():
             try:
                 ptn_file = next(ptn_file_iter)
-                print(f"Processing {beam_name}, Layer {layer_index} with {os.path.basename(ptn_file)}")
+                # print(f"Processing {beam_name}, Layer {layer_index} with {os.path.basename(ptn_file)}")
 
                 try:
                     log_data_raw = parse_ptn_file(ptn_file, config)
