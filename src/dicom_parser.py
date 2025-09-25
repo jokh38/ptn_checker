@@ -41,13 +41,13 @@ def parse_dcm_file(file_path: str) -> dict:
     plan = pydicom.dcmread(file_path)
     plan_data = {'beams': {}}
     # Fix: Use BeamSequence instead of IonBeamSequence
-    for i, beam in enumerate(plan.BeamSequence):
+    for i, beam in enumerate(plan.IonBeamSequence):
         beam_description = getattr(beam, 'BeamDescription', '')
         beam_name = getattr(beam, 'BeamName', '')
         if beam_description == "Site Setup" or beam_name == "SETUP":
             continue
         plan_data['beams'][beam_name] = {'layers': {}}
-        ion_control_points = beam.ControlPointSequence
+        ion_control_points = beam.IonControlPointSequence
         for i in range(0, len(ion_control_points), 2):
             cp_start = ion_control_points[i]
             if (i + 1) >= len(ion_control_points):

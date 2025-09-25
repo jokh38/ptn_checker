@@ -69,9 +69,9 @@ def run_analysis(log_dir, dcm_file, output_path):
 def main():
     parser = argparse.ArgumentParser(
         description="Analyze and compare radiotherapy plan and log files.")
-    parser.add_argument("log_dir",
+    parser.add_argument("--log_dir",
                         help="Directory containing the PTN log files.")
-    parser.add_argument("dcm_file",
+    parser.add_argument("--dcm_file",
                         help="Path to the DICOM RTPLAN file.")
     parser.add_argument("-o", "--output", default="report.pdf",
                         help="Path to save the output PDF report.")

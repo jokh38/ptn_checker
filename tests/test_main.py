@@ -10,7 +10,7 @@ from pydicom.uid import ImplicitVRLittleEndian
 # Add the project root to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from src.main import find_ptn_files, run_analysis
+from main import find_ptn_files, run_analysis
 
 class TestMain(unittest.TestCase):
     def setUp(self):

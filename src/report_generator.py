@@ -6,9 +6,12 @@ from reportlab.lib import colors
 import matplotlib.pyplot as plt
 import numpy as np
 import io
+import logging
 
 from src.calculator import gaussian
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def generate_report(plan_data, all_analysis_results, output_path):
     """
@@ -54,6 +57,7 @@ def generate_report(plan_data, all_analysis_results, output_path):
 
     for beam_name, beam_results in all_analysis_results.items():
         for layer_index, layer_results in beam_results.items():
+            logger.info(f"Saving plot for Beam {beam_name}, Layer {layer_index} - Difference Plot")
             story.append(PageBreak())
             layer_title = f"Beam: {beam_name}, Layer: {layer_index}"
             story.append(Paragraph(layer_title, styles['h2']))
