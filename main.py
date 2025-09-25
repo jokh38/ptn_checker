@@ -4,7 +4,7 @@ import os
 import pydicom
 import numpy as np
 from src.log_parser import parse_ptn_file
-from src.dicom_parser import parse_rtplan
+from src.dicom_parser import parse_dcm_file
 from src.calculator import calculate_differences_for_layer
 from src.report_generator import generate_report
 from src.config_loader import parse_scv_init
@@ -27,16 +27,17 @@ def run_analysis(log_dir, dcm_file, output_dir):
         raise FileNotFoundError(f"DICOM file not found: {dcm_file}")
 
     print(f"Parsing DICOM file: {dcm_file}")
-    plan_data_raw = parse_rtplan(dcm_file)
+    plan_data_raw = parse_dcm_file(dcm_file)
     if not plan_data_raw or 'beams' not in plan_data_raw or not plan_data_raw['beams']:
         raise ValueError("Failed to parse DICOM file or it contains no beam data.")
 
     # Get machine name from the first beam to determine which config to load
-    first_beam = plan_data_raw['beams'][0] if plan_data_raw['beams'] else None
+    first_beam = plan_data_raw['beams'][list(plan_data_raw['beams'].keys())[0]] if plan_data_raw['beams'] else None # 수정된 코드
     if not first_beam:
         raise ValueError("DICOM data contains no beams.")
     
     machine_name = first_beam.get('treatment_machine_name', 'UNKNOWN')
+    print(f"Detected treatment machine: {machine_name}")
 
     config_file_map = {"G1": "scv_init_G1.txt", "G2": "scv_init_G2.txt"}
     config_file = config_file_map.get(machine_name.upper(), None)
@@ -62,8 +63,7 @@ def run_analysis(log_dir, dcm_file, output_dir):
 
     ptn_file_iter = iter(ptn_files)
 
-    for beam_index, beam_data in enumerate(plan_data_raw['beams']):
-        beam_number = beam_data.get('beam_name', f'Beam_{beam_index+1}')
+    for beam_number, beam_data in plan_data_raw['beams'].items():
         for layer_index, layer_data in enumerate(beam_data['energy_layers']):
             try:
                 ptn_file = next(ptn_file_iter)
