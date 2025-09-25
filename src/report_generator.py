@@ -16,7 +16,7 @@ def _generate_error_bar_plot_for_beam(beam_name, layers_data):
     std_diff_x = [layer['results']['std_diff_x'] for layer in layers_data]
     std_diff_y = [layer['results']['std_diff_y'] for layer in layers_data]
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8.27, 11.69))
     fig.suptitle(f'Position Difference (plan - log) - {beam_name}', fontsize=16)
 
     # X-position difference plot
@@ -36,16 +36,13 @@ def _generate_error_bar_plot_for_beam(beam_name, layers_data):
     fig.tight_layout(rect=[0, 0, 1, 0.96])
     return fig
 
-def _generate_per_layer_position_plot(plan_positions, log_positions, layer_index, beam_name):
+def _generate_per_layer_position_plot(plan_positions, log_positions, layer_index, beam_name, global_min_coords, global_max_coords):
     """Generates a 2D position comparison plot figure for a single layer with outlier rejection."""
-    margin = 20  # 2cm margin
-    min_coords = plan_positions.min(axis=0) - margin
-    max_coords = plan_positions.max(axis=0) + margin
 
     # Filter log positions
     filtered_log_positions = log_positions[
-        (log_positions[:, 0] >= min_coords[0]) & (log_positions[:, 0] <= max_coords[0]) &
-        (log_positions[:, 1] >= min_coords[1]) & (log_positions[:, 1] <= max_coords[1])
+        (log_positions[:, 0] >= global_min_coords[0]) & (log_positions[:, 0] <= global_max_coords[0]) &
+        (log_positions[:, 1] >= global_min_coords[1]) & (log_positions[:, 1] <= global_max_coords[1])
     ]
 
     fig, ax = plt.subplots(figsize=(8, 8))
@@ -64,14 +61,14 @@ def _generate_per_layer_position_plot(plan_positions, log_positions, layer_index
     ax.legend()
     ax.grid(True)
     ax.set_aspect('equal', adjustable='box')
-    ax.set_xlim(min_coords[0], max_coords[0])
-    ax.set_ylim(min_coords[1], max_coords[1])
+    ax.set_xlim(global_min_coords[0], global_max_coords[0])
+    ax.set_ylim(global_min_coords[1], global_max_coords[1])
 
     return fig
 
 def _save_plots_to_pdf_grid(pdf, plots, beam_name):
     """Saves up to 4 plots to a single PDF page in a 2x2 grid."""
-    fig = plt.figure(figsize=(12, 12))
+    fig = plt.figure(figsize=(8.27, 11.69))
     fig.suptitle(f'2D Position Comparison - {beam_name}', fontsize=16)
 
     for i, plot_fig in enumerate(plots):
@@ -126,20 +123,35 @@ def generate_report(report_data, output_dir):
             plt.close(error_bar_fig)
             logger.info(f"Error bar plot for beam '{beam_name}' added to PDF.")
 
-            # 2. Generate per-layer 2D position plots for the beam
+            # 2. Calculate global coordinate bounds for the beam
+            all_plan_positions = []
+            for layer_data in beam_data['layers']:
+                plan_pos = layer_data['results']['plan_positions']
+                all_plan_positions.append(plan_pos)
+
+            if all_plan_positions:
+                all_plan_positions = np.vstack(all_plan_positions)
+                margin = 20  # 2cm margin
+                global_min_coords = all_plan_positions.min(axis=0) - margin
+                global_max_coords = all_plan_positions.max(axis=0) + margin
+            else:
+                global_min_coords = np.array([0, 0])
+                global_max_coords = np.array([100, 100])
+
+            # 3. Generate per-layer 2D position plots for the beam
             layer_plots = []
             for layer_data in beam_data['layers']:
                 layer_index = layer_data['layer_index']
                 plan_pos = layer_data['results']['plan_positions']
                 log_pos = layer_data['results']['log_positions']
 
-                layer_fig = _generate_per_layer_position_plot(plan_pos, log_pos, layer_index, beam_name)
+                layer_fig = _generate_per_layer_position_plot(plan_pos, log_pos, layer_index, beam_name, global_min_coords, global_max_coords)
                 layer_plots.append(layer_fig)
 
-            # 3. Save layer plots to PDF in a grid
+            # 4. Save layer plots to PDF in a grid
             for i in range(0, len(layer_plots), 4):
                 chunk = layer_plots[i:i+4]
                 _save_plots_to_pdf_grid(pdf, chunk, beam_name)
-                logger.info(f"Page with {len(chunk)} layer plots for beam '{beam_name}' added to PDF.")
+                # logger.info(f"Page with {len(chunk)} layer plots for beam '{beam_name}' added to PDF.")
 
     logger.info(f"Analysis report saved to {pdf_path}")
