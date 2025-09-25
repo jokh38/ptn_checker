@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 import numpy as np
 import os
 import logging
@@ -6,8 +7,8 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def _generate_error_bar_plot(mean_diff, std_diff, output_dir):
-    """Generates and saves an error bar plot for x and y position differences."""
+def _generate_error_bar_plot(mean_diff, std_diff):
+    """Generates an error bar plot figure for x and y position differences."""
     num_layers = len(mean_diff['x'])
     layers = np.arange(1, num_layers + 1)
 
@@ -28,62 +29,84 @@ def _generate_error_bar_plot(mean_diff, std_diff, output_dir):
     ax2.grid(True)
 
     fig.tight_layout()
-    plt.savefig(f"{output_dir}/error_bar_plot.png")
-    plt.close(fig)
-    logger.info(f"Error bar plot saved to {output_dir}/error_bar_plot.png")
+    return fig
 
-def _generate_position_plot(plan_positions, log_positions, output_dir):
-    """Generates and saves a 2D position comparison plot."""
+def _generate_position_plot(plan_positions, log_positions):
+    """Generates a 2D position comparison plot figure for all layers combined."""
     fig, ax = plt.subplots(figsize=(10, 10))
 
-    # Keep track of labels to avoid duplicates in the legend
     plan_labeled = False
     log_labeled = False
 
     for layer_plan, layer_log in zip(plan_positions, log_positions):
-        # Plot Plan data as a red solid line
         ax.plot(layer_plan[:, 0], layer_plan[:, 1], 'r-', linewidth=1, label='Plan' if not plan_labeled else "")
         plan_labeled = True
 
-        # Sample and plot Log data as blue '+' markers
-        # Sampling every 10th point as per the requirement
         sampled_log = layer_log[::10]
         ax.scatter(sampled_log[:, 0], sampled_log[:, 1], c='b', marker='+', s=10, label='Log' if not log_labeled else "")
         log_labeled = True
 
-    ax.set_title('2D Position Comparison')
+    _setup_plot_axes(ax, '2D Position Comparison (All Layers)')
+    return fig
+
+def _setup_plot_axes(ax, title):
+    """Helper function to set up common plot attributes."""
     ax.set_xlabel('X Position (mm)')
     ax.set_ylabel('Y Position (mm)')
+    ax.set_title(title)
     ax.legend()
     ax.grid(True)
     ax.set_aspect('equal', adjustable='box')
-    plt.savefig(f"{output_dir}/position_comparison_plot.png")
-    plt.close(fig)
-    logger.info(f"Position comparison plot saved to {output_dir}/position_comparison_plot.png")
+
+def _generate_per_layer_position_plot(plan_positions, log_positions, layer_index):
+    """Generates a 2D position comparison plot figure for a single layer."""
+    fig, ax = plt.subplots(figsize=(10, 10))
+
+    ax.plot(plan_positions[:, 0], plan_positions[:, 1], 'r-', linewidth=1, label='Plan')
+
+    sampled_log = log_positions[::10]
+    ax.scatter(sampled_log[:, 0], sampled_log[:, 1], c='b', marker='+', s=10, label='Log')
+
+    _setup_plot_axes(ax, f'2D Position Comparison - Layer {layer_index + 1}')
+    return fig
 
 
 def generate_report(plan_data, log_data, output_dir):
     """
-    Generates and saves analysis plots to the specified directory.
+    Generates a multi-page PDF report with analysis plots.
 
     Args:
         plan_data (dict): A dictionary containing data from the treatment plan.
-                          Expected keys: 'mean_diff', 'std_diff', 'positions'.
         log_data (dict): A dictionary containing data from the machine logs.
-                         Expected keys: 'positions'.
-        output_dir (str): The directory where the plot images will be saved.
+        output_dir (str): The directory where the PDF report will be saved.
     """
-    # Ensure the output directory exists
     os.makedirs(output_dir, exist_ok=True)
+    pdf_path = os.path.join(output_dir, "analysis_report.pdf")
 
-    # 1. Generate and save the error bar plot
-    if 'mean_diff' in plan_data and 'std_diff' in plan_data:
-        _generate_error_bar_plot(plan_data['mean_diff'], plan_data['std_diff'], output_dir)
-    else:
-        logger.warning("Mean/Std difference data not available for error bar plot.")
+    with PdfPages(pdf_path) as pdf:
+        # 1. Generate and save the error bar plot
+        if 'mean_diff' in plan_data and 'std_diff' in plan_data:
+            error_bar_fig = _generate_error_bar_plot(plan_data['mean_diff'], plan_data['std_diff'])
+            pdf.savefig(error_bar_fig)
+            plt.close(error_bar_fig)
+            logger.info("Error bar plot added to PDF.")
+        else:
+            logger.warning("Mean/Std difference data not available for error bar plot.")
 
-    # 2. Generate and save the 2D position comparison plot
-    if 'positions' in plan_data and 'positions' in log_data:
-        _generate_position_plot(plan_data['positions'], log_data['positions'], output_dir)
-    else:
-        logger.warning("Position data not available for 2D position plot.")
+        # 2. Generate and save the combined 2D position comparison plot
+        if 'positions' in plan_data and 'positions' in log_data:
+            position_fig = _generate_position_plot(plan_data['positions'], log_data['positions'])
+            pdf.savefig(position_fig)
+            plt.close(position_fig)
+            logger.info("Combined position comparison plot added to PDF.")
+
+            # 3. Generate and save per-layer 2D position plots
+            for i, (plan_pos, log_pos) in enumerate(zip(plan_data['positions'], log_data['positions'])):
+                layer_fig = _generate_per_layer_position_plot(plan_pos, log_pos, i)
+                pdf.savefig(layer_fig)
+                plt.close(layer_fig)
+                logger.info(f"Layer {i+1} position plot added to PDF.")
+        else:
+            logger.warning("Position data not available for 2D position plot.")
+
+    logger.info(f"Analysis report saved to {pdf_path}")

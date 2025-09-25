@@ -96,7 +96,7 @@ def run_analysis(log_dir, dcm_file, output_dir):
     }
     final_log_data = {'positions': all_log_positions}
 
-    print(f"Generating reports in directory: {output_dir}")
+    print(f"Generating PDF report in directory: {output_dir}")
     generate_report(final_plan_data, final_log_data, output_dir)
     print("Done.")
 

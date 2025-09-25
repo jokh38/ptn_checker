@@ -10,100 +10,72 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 from src.log_parser import parse_ptn_file
 
-class TestLogParser(unittest.TestCase):
+class TestCorrectLogParser(unittest.TestCase):
 
     def setUp(self):
         self.test_dir = tempfile.mkdtemp()
         self.ptn_file_path = os.path.join(self.test_dir, "test.ptn")
-        # Create a dummy binary .ptn file
-        # The data should be a 1D array of uint16s with a size that is a multiple of 8
-        dummy_data = np.arange(64, dtype='>u2') # 64 is a multiple of 8
-        dummy_data.tofile(self.ptn_file_path)
 
-    def tearDown(self):
-        shutil.rmtree(self.test_dir)
+        # Create a dummy binary .ptn file with 2 records (16 shorts)
+        # Data format: x_raw, y_raw, x_size_raw, y_size_raw, dose1, dose2, layer, beam_on
+        self.raw_data = np.array([
+            1000, 2000, 300, 400, 50, 60, 1, 1,
+            1010, 2020, 310, 410, 55, 65, 1, 1
+        ], dtype='>u2')
+        self.raw_data.tofile(self.ptn_file_path)
 
-    def setUp(self):
-        self.test_dir = tempfile.mkdtemp()
-        self.ptn_file_path = os.path.join(self.test_dir, "test.ptn")
-        # Raw data: x=10, y=20, dose1=5 for first record
-        # x=18, y=28, dose1=13 for second record
-        dummy_data = np.array([10, 20, 0, 0, 5, 0, 0, 0,
-                               18, 28, 0, 0, 13, 0, 0, 0], dtype='>u2')
-        dummy_data.tofile(self.ptn_file_path)
-
+        # Full config parameters from the "correct" parser
         self.config = {
-            'XPOSGAIN': 0.5,
-            'YPOSGAIN': 2.0,
-            'XPOSOFFSET': 2.0,
-            'YPOSOFFSET': 4.0,
+            'TIMEGAIN': 10.0,
+            'XPOSOFFSET': 500.0,
+            'YPOSOFFSET': 1500.0,
+            'XPOSGAIN': 0.1,
+            'YPOSGAIN': 0.2
         }
 
     def tearDown(self):
         shutil.rmtree(self.test_dir)
 
-    def test_parse_ptn_file_smoke(self):
+    def test_parse_ptn_file_returns_comprehensive_dict(self):
         """
-        A simple smoke test to see if the function runs without crashing.
+        Test that the parser returns all expected keys and values with correct transformations.
+        This test is designed for the NEW, correct parser logic.
         """
-        self.assertTrue(os.path.exists(self.ptn_file_path), "Test file does not exist")
-        data = parse_ptn_file(self.ptn_file_path, self.config)
-        self.assertIsInstance(data, dict)
-
-    def test_parse_ptn_file_keys(self):
-        """
-        Test that the parsed data dictionary contains the expected keys.
-        """
-        data = parse_ptn_file(self.ptn_file_path, self.config)
-        self.assertIn("x", data)
-        self.assertIn("y", data)
-        self.assertIn("mu", data)
-
-    def test_parse_ptn_file_data_shape(self):
-        """
-        Test that the data arrays have the same length.
-        """
-        data = parse_ptn_file(self.ptn_file_path, self.config)
-        self.assertEqual(data["x"].shape, data["y"].shape)
-        self.assertEqual(data["x"].shape, data["mu"].shape)
-
-    def test_parse_ptn_file_data_type(self):
-        """
-        Test that the data arrays are numpy arrays.
-        """
-        data = parse_ptn_file(self.ptn_file_path, self.config)
-        self.assertIsInstance(data["x"], np.ndarray)
-        self.assertIsInstance(data["y"], np.ndarray)
-        self.assertIsInstance(data["mu"], np.ndarray)
-
-    def test_coordinate_transformation(self):
-        """
-        Test that the coordinate transformation is applied correctly.
-        """
+        # This will fail with the current src/log_parser.py
         data = parse_ptn_file(self.ptn_file_path, self.config)
 
-        # Expected values based on the formula:
-        # real_x = (raw_x - XPOSOFFSET) * XPOSGAIN
-        # real_y = (raw_y - YPOSOFFSET) * YPOSGAIN
+        # 1. Check for all expected keys
+        expected_keys = [
+            "time_ms", "x_raw", "y_raw", "x_size_raw", "y_size_raw",
+            "dose1_au", "dose2_au", "layer_num", "beam_on_off",
+            "x_mm", "y_mm", "x_size_mm", "y_size_mm"
+        ]
+        for key in expected_keys:
+            self.assertIn(key, data, f"Key '{key}' is missing from the output dictionary.")
 
-        # First record:
-        # x = (10 - 2.0) * 0.5 = 4.0
-        # y = (20 - 4.0) * 2.0 = 32.0
-        # mu = 5
+        # 2. Check data types and shapes
+        self.assertEqual(data['time_ms'].shape[0], 2)
+        self.assertEqual(data['x_mm'].shape[0], 2)
+        self.assertIsInstance(data['x_mm'], np.ndarray)
 
-        # Second record:
-        # x = (18 - 2.0) * 0.5 = 8.0
-        # y = (28 - 4.0) * 2.0 = 48.0
-        # mu = 5 + 13 = 18
+        # 3. Check calculated values
+        # Time = index * TIMEGAIN
+        expected_time = np.array([0.0, 10.0])
+        np.testing.assert_allclose(data['time_ms'], expected_time, rtol=1e-6)
 
-        expected_x = np.array([4.0, 8.0])
-        expected_y = np.array([32.0, 48.0])
-        expected_mu = np.array([5, 18])
+        # x_mm = (raw_x - XPOSOFFSET) * XPOSGAIN
+        # y_mm = (raw_y - YPOSOFFSET) * YPOSGAIN
+        expected_x_mm = np.array([(1000 - 500.0) * 0.1, (1010 - 500.0) * 0.1]) # [50.0, 51.0]
+        expected_y_mm = np.array([(2000 - 1500.0) * 0.2, (2020 - 1500.0) * 0.2]) # [100.0, 104.0]
+        np.testing.assert_allclose(data['x_mm'], expected_x_mm, rtol=1e-6)
+        np.testing.assert_allclose(data['y_mm'], expected_y_mm, rtol=1e-6)
 
-        np.testing.assert_allclose(data['x'], expected_x)
-        np.testing.assert_allclose(data['y'], expected_y)
-        np.testing.assert_allclose(data['mu'], expected_mu)
-
+        # x_size_mm = raw_x_size * XPOSGAIN
+        # y_size_mm = raw_y_size * YPOSGAIN
+        expected_x_size_mm = np.array([300 * 0.1, 310 * 0.1]) # [30.0, 31.0]
+        expected_y_size_mm = np.array([400 * 0.2, 410 * 0.2]) # [80.0, 82.0]
+        np.testing.assert_allclose(data['x_size_mm'], expected_x_size_mm, rtol=1e-6)
+        np.testing.assert_allclose(data['y_size_mm'], expected_y_size_mm, rtol=1e-6)
 
 if __name__ == '__main__':
     unittest.main()
