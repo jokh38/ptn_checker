@@ -1,135 +1,89 @@
-from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle,
-                              Paragraph, Spacer, Image, PageBreak)
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib.units import inch
-from reportlab.lib import colors
 import matplotlib.pyplot as plt
 import numpy as np
-import io
+import os
 import logging
-
-from src.calculator import gaussian
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def generate_report(plan_data, all_analysis_results, output_path):
+def _generate_error_bar_plot(mean_diff, std_diff, output_dir):
+    """Generates and saves an error bar plot for x and y position differences."""
+    num_layers = len(mean_diff['x'])
+    layers = np.arange(1, num_layers + 1)
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
+
+    # X-position difference plot
+    ax1.errorbar(layers, mean_diff['x'], yerr=std_diff['x'], fmt='o-', capsize=5)
+    ax1.set_title('X Position Difference (plan - log)')
+    ax1.set_xlabel('Layer Number')
+    ax1.set_ylabel('Difference (mm)')
+    ax1.grid(True)
+
+    # Y-position difference plot
+    ax2.errorbar(layers, mean_diff['y'], yerr=std_diff['y'], fmt='o-', capsize=5, color='orange')
+    ax2.set_title('Y Position Difference (plan - log)')
+    ax2.set_xlabel('Layer Number')
+    ax2.set_ylabel('Difference (mm)')
+    ax2.grid(True)
+
+    fig.tight_layout()
+    plt.savefig(f"{output_dir}/error_bar_plot.png")
+    plt.close(fig)
+    logger.info(f"Error bar plot saved to {output_dir}/error_bar_plot.png")
+
+def _generate_position_plot(plan_positions, log_positions, output_dir):
+    """Generates and saves a 2D position comparison plot."""
+    fig, ax = plt.subplots(figsize=(10, 10))
+
+    # Keep track of labels to avoid duplicates in the legend
+    plan_labeled = False
+    log_labeled = False
+
+    for layer_plan, layer_log in zip(plan_positions, log_positions):
+        # Plot Plan data as a red solid line
+        ax.plot(layer_plan[:, 0], layer_plan[:, 1], 'r-', linewidth=1, label='Plan' if not plan_labeled else "")
+        plan_labeled = True
+
+        # Sample and plot Log data as blue '+' markers
+        # Sampling every 10th point as per the requirement
+        sampled_log = layer_log[::10]
+        ax.scatter(sampled_log[:, 0], sampled_log[:, 1], c='b', marker='+', s=10, label='Log' if not log_labeled else "")
+        log_labeled = True
+
+    ax.set_title('2D Position Comparison')
+    ax.set_xlabel('X Position (mm)')
+    ax.set_ylabel('Y Position (mm)')
+    ax.legend()
+    ax.grid(True)
+    ax.set_aspect('equal', adjustable='box')
+    plt.savefig(f"{output_dir}/position_comparison_plot.png")
+    plt.close(fig)
+    logger.info(f"Position comparison plot saved to {output_dir}/position_comparison_plot.png")
+
+
+def generate_report(plan_data, log_data, output_dir):
     """
-    Generates a PDF report from the analysis results.
+    Generates and saves analysis plots to the specified directory.
+
+    Args:
+        plan_data (dict): A dictionary containing data from the treatment plan.
+                          Expected keys: 'mean_diff', 'std_diff', 'positions'.
+        log_data (dict): A dictionary containing data from the machine logs.
+                         Expected keys: 'positions'.
+        output_dir (str): The directory where the plot images will be saved.
     """
-    doc = SimpleDocTemplate(output_path)
-    styles = getSampleStyleSheet()
-    story = []
-    title = Paragraph("Spot Position Check Report", styles['h1'])
-    story.append(title)
-    story.append(Spacer(1, 0.2*inch))
-    patient_name = plan_data.get('patient_name', 'N/A')
-    patient_id = plan_data.get('patient_id', 'N/A')
-    p_info = f"Patient Name: {patient_name}<br/>Patient ID: {patient_id}"
-    patient_info = Paragraph(p_info, styles['Normal'])
-    story.append(patient_info)
-    story.append(Spacer(1, 0.2*inch))
+    # Ensure the output directory exists
+    os.makedirs(output_dir, exist_ok=True)
 
-    summary_data = [
-        ["Beam", "Layer", "Axis", "Offset (mm)", "Std Dev (mm)"],
-    ]
-    for beam_name, beam_results in all_analysis_results.items():
-        for layer_index, layer_results in beam_results.items():
-            fit_x = layer_results.get('hist_fit_x', {})
-            fit_y = layer_results.get('hist_fit_y', {})
-            summary_data.append([beam_name, layer_index, "X",
-                                 f"{fit_x.get('mean', 0):.3f}",
-                                 f"{fit_x.get('stddev', 0):.3f}"])
-            summary_data.append(["", "", "Y", f"{fit_y.get('mean', 0):.3f}",
-                                 f"{fit_y.get('stddev', 0):.3f}"])
+    # 1. Generate and save the error bar plot
+    if 'mean_diff' in plan_data and 'std_diff' in plan_data:
+        _generate_error_bar_plot(plan_data['mean_diff'], plan_data['std_diff'], output_dir)
+    else:
+        logger.warning("Mean/Std difference data not available for error bar plot.")
 
-    summary_table = Table(summary_data)
-    summary_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black)
-    ]))
-    story.append(summary_table)
-
-    for beam_name, beam_results in all_analysis_results.items():
-        for layer_index, layer_results in beam_results.items():
-            logger.info(f"Saving plot for Beam {beam_name}, Layer {layer_index} - Difference Plot")
-            story.append(PageBreak())
-            layer_title = f"Beam: {beam_name}, Layer: {layer_index}"
-            story.append(Paragraph(layer_title, styles['h2']))
-            story.append(Spacer(1, 0.2*inch))
-
-            diff_x = layer_results.get('diff_x', np.array([]))
-            diff_y = layer_results.get('diff_y', np.array([]))
-
-            fig = plt.figure(figsize=(6, 4))
-            try:
-                plt.plot(diff_x, label="X-difference")
-                plt.plot(diff_y, label="Y-difference")
-                plt.title("Position Differences (Plan - Log)")
-                plt.xlabel("Spot Index")
-                plt.ylabel("Difference (mm)")
-                plt.legend()
-                plt.grid(True)
-
-                img_buffer = io.BytesIO()
-                plt.savefig(img_buffer, format='png')
-                img_buffer.seek(0)
-                story.append(Image(img_buffer, width=5*inch, height=3*inch))
-            finally:
-                plt.close(fig)
-
-            story.append(Spacer(1, 0.2*inch))
-
-            bins = np.arange(-5, 5.01, 0.01)
-            bin_centers = (bins[:-1] + bins[1:]) / 2
-
-            fig = plt.figure(figsize=(6, 4))
-            try:
-                plt.hist(diff_x, bins=bins, density=True, label='X-diff Histogram')
-                if 'hist_fit_x' in layer_results:
-                    fit_params = layer_results['hist_fit_x']
-                    if fit_params.get('amplitude', 0) > 0:
-                        plt.plot(bin_centers, gaussian(bin_centers, **fit_params),
-                                 'r-', label='Gaussian Fit')
-                plt.title("X-Difference Histogram")
-                plt.xlabel("Difference (mm)")
-                plt.ylabel("Probability Density")
-                plt.legend()
-                plt.grid(True)
-
-                img_buffer = io.BytesIO()
-                plt.savefig(img_buffer, format='png')
-                img_buffer.seek(0)
-                story.append(Image(img_buffer, width=5*inch, height=3*inch))
-            finally:
-                plt.close(fig)
-
-            story.append(Spacer(1, 0.2*inch))
-
-            fig = plt.figure(figsize=(6, 4))
-            try:
-                plt.hist(diff_y, bins=bins, density=True, label='Y-diff Histogram')
-                if 'hist_fit_y' in layer_results:
-                    fit_params = layer_results['hist_fit_y']
-                    if fit_params.get('amplitude', 0) > 0:
-                        plt.plot(bin_centers, gaussian(bin_centers, **fit_params),
-                                 'r-', label='Gaussian Fit')
-                plt.title("Y-Difference Histogram")
-                plt.xlabel("Difference (mm)")
-                plt.ylabel("Probability Density")
-                plt.legend()
-                plt.grid(True)
-
-                img_buffer = io.BytesIO()
-                plt.savefig(img_buffer, format='png')
-                img_buffer.seek(0)
-                story.append(Image(img_buffer, width=5*inch, height=3*inch))
-            finally:
-                plt.close(fig)
-
-    doc.build(story)
+    # 2. Generate and save the 2D position comparison plot
+    if 'positions' in plan_data and 'positions' in log_data:
+        _generate_position_plot(plan_data['positions'], log_data['positions'], output_dir)
+    else:
+        logger.warning("Position data not available for 2D position plot.")
