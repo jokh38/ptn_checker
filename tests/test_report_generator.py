@@ -61,11 +61,16 @@ class TestReportGenerator(unittest.TestCase):
 
     def test_generate_per_layer_position_plot(self):
         layer_data = self.report_data["Beam 1"]['layers'][0]
+        # Mock global coordinates for testing
+        global_min_coords = np.array([0, 0])
+        global_max_coords = np.array([10, 10])
         fig = _generate_per_layer_position_plot(
             layer_data['results']['plan_positions'],
             layer_data['results']['log_positions'],
             layer_data['layer_index'],
-            "Beam 1"
+            "Beam 1",
+            global_min_coords,
+            global_max_coords
         )
         self.assertIsInstance(fig, plt.Figure)
         plt.close(fig)

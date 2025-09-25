@@ -84,7 +84,11 @@ def parse_ptn_file(file_path: str, config_params: dict) -> dict:
     corrected_x_size_col = raw_x_size_col * xpos_gain
     corrected_y_size_col = raw_y_size_col * ypos_gain
 
-    # 9. Return Data as dictionary of 1D arrays
+    # 9. Calculate cumulative MU from dose1_au and dose2_au
+    total_dose = dose1_col + dose2_col
+    cumulative_mu = np.cumsum(total_dose)
+
+    # 10. Return Data as dictionary of 1D arrays
     return {
         "time_ms": time_column.flatten(), # time_column is already 1D after reshape(-1,1).flatten() or direct
         "x_raw": raw_x_col,
@@ -99,4 +103,8 @@ def parse_ptn_file(file_path: str, config_params: dict) -> dict:
         "y_mm": corrected_y_col,
         "x_size_mm": corrected_x_size_col,
         "y_size_mm": corrected_y_size_col,
+        # Keys expected by calculator.py
+        "mu": cumulative_mu,
+        "x": corrected_x_col,
+        "y": corrected_y_col,
     }
