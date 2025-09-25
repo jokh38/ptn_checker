@@ -1,71 +1,130 @@
 import unittest
 import os
 import numpy as np
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
+import shutil
 
 # Add src to path to allow for imports
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from src.report_generator import generate_report
+# Import the functions to be tested, including the private ones
+from src.report_generator import (
+    generate_report,
+    _generate_error_bar_plot,
+    _generate_position_plot
+)
 
 class TestReportGenerator(unittest.TestCase):
 
     def setUp(self):
-        self.output_path = "test_report.pdf"
+        """Set up test data and output directory."""
+        self.output_dir = "test_output"
+        os.makedirs(self.output_dir, exist_ok=True)
+
+        # Data for helper functions
+        self.mean_diff = {'x': np.array([0.1, 0.2]), 'y': np.array([-0.1, -0.2])}
+        self.std_diff = {'x': np.array([0.5, 0.6]), 'y': np.array([0.4, 0.5])}
+        self.plan_positions = [
+            np.array([[1, 2], [3, 4]]),  # Layer 1
+            np.array([[5, 6], [7, 8]])   # Layer 2
+        ]
+        self.log_positions = [
+            np.array([[1.1, 2.1], [3.1, 4.1], [1.1, 2.1], [3.1, 4.1], [1.1, 2.1], [3.1, 4.1], [1.1, 2.1], [3.1, 4.1], [1.1, 2.1], [3.1, 4.1], [1.1, 2.1]]), # Layer 1
+            np.array([[5.1, 6.1], [7.1, 8.1]])   # Layer 2
+        ]
+
+        # Data for the main generate_report function
         self.plan_data = {
-            'patient_name': 'Test Patient',
-            'patient_id': '12345'
+            'mean_diff': self.mean_diff,
+            'std_diff': self.std_diff,
+            'positions': self.plan_positions
         }
-        self.analysis_results = {
-            "Beam 1": {
-                1: {
-                    'diff_x': np.random.normal(0, 0.5, 1000),
-                    'diff_y': np.random.normal(0, 0.5, 1000),
-                    'hist_fit_x': {'amplitude': 1, 'mean': 0.1, 'stddev': 0.5},
-                    'hist_fit_y': {'amplitude': 1, 'mean': -0.1, 'stddev': 0.45}
-                },
-                2: {
-                    'diff_x': np.random.normal(0, 0.5, 1000),
-                    'diff_y': np.random.normal(0, 0.5, 1000),
-                    'hist_fit_x': {'amplitude': 1, 'mean': 0.2, 'stddev': 0.6},
-                    'hist_fit_y': {'amplitude': 1, 'mean': -0.2, 'stddev': 0.55}
-                }
-            }
+        self.log_data = {
+            'positions': self.log_positions
         }
 
     def tearDown(self):
-        if os.path.exists(self.output_path):
-            os.remove(self.output_path)
-
-    def test_generate_report_smoke(self):
-        """
-        Test that the report generation function runs and creates a file.
-        """
-        generate_report(self.plan_data, self.analysis_results, self.output_path)
-        self.assertTrue(os.path.exists(self.output_path))
-
-    def test_generate_report_file_size(self):
-        """
-        Test that the generated report file is not empty.
-        """
-        generate_report(self.plan_data, self.analysis_results, self.output_path)
-        self.assertGreater(os.path.getsize(self.output_path), 0)
+        """Remove the output directory after tests."""
+        if os.path.exists(self.output_dir):
+            shutil.rmtree(self.output_dir)
 
     @patch('matplotlib.pyplot.savefig')
-    @patch('matplotlib.pyplot.close')
-    def test_generate_report_closes_plot_on_error(self, mock_close, mock_savefig):
-        """
-        Test that plt.close() is called even if plt.savefig() raises an error.
-        """
-        mock_savefig.side_effect = Exception("Test error")
+    @patch('matplotlib.pyplot.subplots')
+    def test_generate_error_bar_plot(self, mock_subplots, mock_savefig):
+        """Test the _generate_error_bar_plot helper function directly."""
+        mock_fig, (mock_ax1, mock_ax2) = MagicMock(), (MagicMock(), MagicMock())
+        mock_subplots.return_value = (mock_fig, (mock_ax1, mock_ax2))
 
-        # We expect the function to fail because of the mocked error
-        with self.assertRaises(Exception):
-            generate_report(self.plan_data, self.analysis_results, self.output_path)
+        _generate_error_bar_plot(self.mean_diff, self.std_diff, self.output_dir)
 
-        # But we want to ensure that plt.close was still called
-        self.assertTrue(mock_close.called)
+        # Assert that subplots was called correctly
+        mock_subplots.assert_called_once_with(2, 1, figsize=(10, 8))
+
+        # Assert for X-position plot
+        layers = np.arange(1, len(self.mean_diff['x']) + 1)
+        # Using np.array_equal for comparing numpy arrays in mock calls
+        self.assertTrue(np.array_equal(mock_ax1.errorbar.call_args[0][0], layers))
+        self.assertTrue(np.array_equal(mock_ax1.errorbar.call_args[0][1], self.mean_diff['x']))
+        self.assertTrue(np.array_equal(mock_ax1.errorbar.call_args[1]['yerr'], self.std_diff['x']))
+
+        # Assert for Y-position plot
+        self.assertTrue(np.array_equal(mock_ax2.errorbar.call_args[0][0], layers))
+        self.assertTrue(np.array_equal(mock_ax2.errorbar.call_args[0][1], self.mean_diff['y']))
+        self.assertTrue(np.array_equal(mock_ax2.errorbar.call_args[1]['yerr'], self.std_diff['y']))
+
+        # Assert savefig was called
+        mock_savefig.assert_called_once_with(f"{self.output_dir}/error_bar_plot.png")
+
+    @patch('matplotlib.pyplot.savefig')
+    @patch('matplotlib.pyplot.subplots')
+    def test_generate_position_plot(self, mock_subplots, mock_savefig):
+        """Test the _generate_position_plot helper function directly."""
+        mock_fig, mock_ax = MagicMock(), MagicMock()
+        mock_subplots.return_value = (mock_fig, mock_ax)
+        mock_ax.get_legend.return_value = None
+
+        _generate_position_plot(self.plan_positions, self.log_positions, self.output_dir)
+
+        # Assert subplots was called correctly
+        mock_subplots.assert_called_once_with(figsize=(10, 10))
+
+        # Assert plot/scatter calls
+        self.assertEqual(mock_ax.plot.call_count, 2)
+        self.assertEqual(mock_ax.scatter.call_count, 2)
+
+        # Assert savefig was called
+        mock_savefig.assert_called_once_with(f"{self.output_dir}/position_comparison_plot.png")
+
+    @patch('src.report_generator._generate_position_plot')
+    @patch('src.report_generator._generate_error_bar_plot')
+    def test_generate_report_calls_helpers(self, mock_error_plot, mock_position_plot):
+        """Test that the main report function calls its helper plot functions."""
+        generate_report(self.plan_data, self.log_data, self.output_dir)
+
+        mock_error_plot.assert_called_once_with(
+            self.plan_data['mean_diff'],
+            self.plan_data['std_diff'],
+            self.output_dir
+        )
+        mock_position_plot.assert_called_once_with(
+            self.plan_data['positions'],
+            self.log_data['positions'],
+            self.output_dir
+        )
+
+    def test_output_directory_creation(self):
+        """Test that generate_report creates the output directory if it doesn't exist."""
+        temp_output_dir = "temp_test_dir_for_creation"
+        if os.path.exists(temp_output_dir):
+            shutil.rmtree(temp_output_dir)
+
+        with patch('src.report_generator._generate_error_bar_plot'), \
+             patch('src.report_generator._generate_position_plot'):
+            generate_report(self.plan_data, self.log_data, temp_output_dir)
+
+        self.assertTrue(os.path.exists(temp_output_dir))
+        shutil.rmtree(temp_output_dir)
 
 if __name__ == '__main__':
     unittest.main()
