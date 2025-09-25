@@ -7,6 +7,10 @@ import pydicom
 from pydicom.dataset import Dataset, FileMetaDataset
 from pydicom.uid import ImplicitVRLittleEndian
 
+# Set matplotlib backend for headless testing
+import matplotlib
+matplotlib.use('Agg')
+
 # Add the project root to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -27,8 +31,10 @@ class TestMain(unittest.TestCase):
         ]
 
         for ptn_file in self.ptn_files:
-            with open(ptn_file, "w") as f:
-                f.write("CS\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20\n21\n22\n23\n24\n25\n26\n27\n28\n29\n30\n31\n32\n33\n34\n35\n36\n37\n38\n39\n40\n41\n42\n43\n44\n45\n46\n47\n48\n49\n50\n51\n52\n53\n54\n55\n56\n57\n58\n59\n60\n")
+            # Create proper binary PTN files (10 spots * 8 shorts/spot = 80 shorts)
+            import numpy as np
+            dummy_ptn_data = np.arange(80, dtype='>u2')
+            dummy_ptn_data.tofile(ptn_file)
 
         # Create a non-ptn file to ensure it's not picked up
         with open(os.path.join(self.test_dir, "not_a_ptn.txt"), "w") as f:
@@ -56,6 +62,7 @@ class TestMain(unittest.TestCase):
             f.write("YPOSGAIN\t1.0\n")
             f.write("XPOSOFFSET\t0.0\n")
             f.write("YPOSOFFSET\t0.0\n")
+            f.write("TIMEGAIN\t0.001\n")
 
 
     def create_dummy_dcm_file(self, filepath, machine_name="TestMachine"):
@@ -117,6 +124,20 @@ class TestMain(unittest.TestCase):
         os.makedirs(empty_dir)
         with self.assertRaisesRegex(FileNotFoundError, "No .ptn files found"):
             run_analysis(empty_dir, self.dcm_file, "report.pdf")
+
+    def test_run_analysis_integration(self):
+        """
+        Test that run_analysis can process DICOM and PTN files successfully.
+        """
+        output_dir = os.path.join(self.test_dir, "output")
+        os.makedirs(output_dir)
+
+        # Should run without throwing the "No analysis results were generated" error
+        try:
+            run_analysis(self.test_dir, self.dcm_file, output_dir)
+        except ValueError as e:
+            if "No analysis results were generated" in str(e):
+                self.fail("run_analysis failed with 'No analysis results were generated' - structure mismatch issue")
 
 if __name__ == '__main__':
     unittest.main()

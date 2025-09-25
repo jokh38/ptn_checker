@@ -27,16 +27,15 @@ def run_analysis(log_dir, dcm_file, output_dir):
         raise FileNotFoundError(f"DICOM file not found: {dcm_file}")
 
     print(f"Parsing DICOM file: {dcm_file}")
-    plan_data_raw = parse_dcm_file(dcm_file)
+    try:
+        plan_data_raw = parse_dcm_file(dcm_file)
+    except Exception as e:
+        raise ValueError(f"Failed to parse DICOM file: {e}")
+
     if not plan_data_raw or 'beams' not in plan_data_raw or not plan_data_raw['beams']:
         raise ValueError("Failed to parse DICOM file or it contains no beam data.")
 
-    # Get machine name from the first beam to determine which config to load
-    first_beam = plan_data_raw['beams'][list(plan_data_raw['beams'].keys())[0]] if plan_data_raw['beams'] else None # 수정된 코드
-    if not first_beam:
-        raise ValueError("DICOM data contains no beams.")
-    
-    machine_name = first_beam.get('treatment_machine_name', 'UNKNOWN')
+    machine_name = plan_data_raw.get('machine_name', 'UNKNOWN')
     print(f"Detected treatment machine: {machine_name}")
 
     config_file_map = {"G1": "scv_init_G1.txt", "G2": "scv_init_G2.txt"}
@@ -49,7 +48,10 @@ def run_analysis(log_dir, dcm_file, output_dir):
     if not os.path.exists(config_path):
         raise FileNotFoundError(f"Config file not found: {config_path}")
 
-    config = parse_scv_init(config_path)
+    try:
+        config = parse_scv_init(config_path)
+    except Exception as e:
+        raise ValueError(f"Failed to parse config file {config_path}: {e}")
 
     ptn_files = sorted(find_ptn_files(log_dir))
     if not ptn_files:
@@ -64,17 +66,25 @@ def run_analysis(log_dir, dcm_file, output_dir):
     ptn_file_iter = iter(ptn_files)
 
     for beam_number, beam_data in plan_data_raw['beams'].items():
-        for layer_index, layer_data in enumerate(beam_data['energy_layers']):
+        for layer_index, layer_data in beam_data.get('layers', {}).items():
             try:
                 ptn_file = next(ptn_file_iter)
                 print(f"Processing Beam {beam_number}, Layer {layer_index} with {os.path.basename(ptn_file)}")
 
-                log_data_raw = parse_ptn_file(ptn_file, config)
-                if not log_data_raw:
-                    print(f"Warning: Could not parse PTN file or it is empty: {ptn_file}")
+                try:
+                    log_data_raw = parse_ptn_file(ptn_file, config)
+                    if not log_data_raw:
+                        print(f"Warning: Could not parse PTN file or it is empty: {ptn_file}")
+                        continue
+                except (KeyError, ValueError, IOError) as e:
+                    print(f"Error parsing PTN file {ptn_file}: {e}")
                     continue
 
-                analysis_results = calculate_differences_for_layer(layer_data, log_data_raw)
+                try:
+                    analysis_results = calculate_differences_for_layer(layer_data, log_data_raw)
+                except (KeyError, ValueError, TypeError) as e:
+                    print(f"Error calculating differences for Beam {beam_number}, Layer {layer_index}: {e}")
+                    continue
 
                 if 'error' in analysis_results:
                     print(f"Skipping layer due to error: {analysis_results['error']}")

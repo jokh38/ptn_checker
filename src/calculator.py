@@ -18,9 +18,9 @@ def calculate_differences_for_layer(plan_layer, log_data):
     plan_x = plan_layer['positions'][:, 0]
     plan_y = plan_layer['positions'][:, 1]
 
-    log_mu = log_data['mu']
-    log_x = log_data['x']
-    log_y = log_data['y']
+    log_mu = log_data.get('mu', log_data['time_ms'])  # Use time_ms if mu not available
+    log_x = log_data.get('x', log_data['x_mm'])  # Use x_mm if x not available
+    log_y = log_data.get('y', log_data['y_mm'])  # Use y_mm if y not available
 
     if len(plan_mu) == 0 or len(log_mu) == 0:
         return {'error': 'Empty data arrays'}

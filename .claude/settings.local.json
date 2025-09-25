@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -m pytest tests/test_config_loader.py::TestConfigLoader::test_parse_scv_init -v)",
+      "Bash(python3 -m pytest tests/test_calculator.py -v)",
+      "Bash(python3:*)",
+      "Bash(export MPLBACKEND=Agg)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

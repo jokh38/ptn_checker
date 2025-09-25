@@ -8,7 +8,7 @@ def parse_scv_init(file_path: str) -> dict:
         raise FileNotFoundError(f"File not found: {file_path}")
 
     config = {}
-    allowed_keys = {'XPOSGAIN', 'YPOSGAIN', 'XPOSOFFSET', 'YPOSOFFSET'}
+    allowed_keys = {'XPOSGAIN', 'YPOSGAIN', 'XPOSOFFSET', 'YPOSOFFSET', 'TIMEGAIN'}
 
     with open(file_path, 'r') as f:
         for line in f:

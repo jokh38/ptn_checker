@@ -19,6 +19,7 @@ class TestConfigLoader(unittest.TestCase):
             f.write("YPOSGAIN\t4.56\n")
             f.write("XPOSOFFSET\t-10\n")
             f.write("YPOSOFFSET\t20\n")
+            f.write("TIMEGAIN\t0.001\n")
             f.write("# This is a comment\n")
             f.write("SOME_OTHER_PARAM\tVALUE\n")
 
@@ -42,6 +43,9 @@ class TestConfigLoader(unittest.TestCase):
 
         self.assertIn('YPOSOFFSET', config)
         self.assertEqual(config['YPOSOFFSET'], 20.0)
+
+        self.assertIn('TIMEGAIN', config)
+        self.assertEqual(config['TIMEGAIN'], 0.001)
 
         self.assertNotIn('SOME_OTHER_PARAM', config) # Should only parse specific keys
         self.assertNotIn('# This is a comment', config)

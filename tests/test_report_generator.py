@@ -3,6 +3,10 @@ import os
 import numpy as np
 from unittest.mock import patch, MagicMock
 import shutil
+
+# Set matplotlib backend for headless testing
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 # Add src to path to allow for imports

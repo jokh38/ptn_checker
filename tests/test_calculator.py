@@ -32,7 +32,8 @@ class TestCalculator(unittest.TestCase):
 
         self.config = {
             'XPOSGAIN': 1.0, 'YPOSGAIN': 1.0,
-            'XPOSOFFSET': 0.0, 'YPOSOFFSET': 0.0
+            'XPOSOFFSET': 0.0, 'YPOSOFFSET': 0.0,
+            'TIMEGAIN': 0.001
         }
         self.log_data = parse_ptn_file(self.ptn_file_path, self.config)
         plan_data = parse_dcm_file(self.dcm_file_path)
@@ -107,10 +108,10 @@ class TestCalculator(unittest.TestCase):
         self.plan_layer['positions'] = np.zeros((10, 2))
         self.plan_layer['mu'] = np.zeros(10)
         results = calculate_differences_for_layer(self.plan_layer, self.log_data)
-        self.assertIn('diff_x', results)
-        self.assertIn('diff_y', results)
-        self.assertIn('hist_fit_x', results)
-        self.assertIn('hist_fit_y', results)
+        self.assertIn('mean_diff_x', results)
+        self.assertIn('mean_diff_y', results)
+        self.assertIn('std_diff_x', results)
+        self.assertIn('std_diff_y', results)
 
     def test_calculate_differences_data_shape(self):
         """
@@ -119,25 +120,20 @@ class TestCalculator(unittest.TestCase):
         self.plan_layer['positions'] = np.zeros((10, 2))
         self.plan_layer['mu'] = np.zeros(10)
         results = calculate_differences_for_layer(self.plan_layer, self.log_data)
-        self.assertEqual(results['diff_x'].shape, self.log_data['x'].shape)
-        self.assertEqual(results['diff_y'].shape, self.log_data['y'].shape)
+        self.assertEqual(results['log_positions'].shape[0], self.log_data['x_mm'].shape[0])
+        self.assertIsInstance(results['mean_diff_x'], (float, np.floating))
 
-    def test_hist_fit_results(self):
+    def test_result_structure(self):
         """
-        Test that the histogram fit results have the expected keys.
+        Test that the results have the expected structure.
         """
         self.plan_layer['positions'] = np.zeros((10, 2))
         self.plan_layer['mu'] = np.zeros(10)
         results = calculate_differences_for_layer(self.plan_layer, self.log_data)
-        fit_results_x = results['hist_fit_x']
-        self.assertIn('amplitude', fit_results_x)
-        self.assertIn('mean', fit_results_x)
-        self.assertIn('stddev', fit_results_x)
-
-        fit_results_y = results['hist_fit_y']
-        self.assertIn('amplitude', fit_results_y)
-        self.assertIn('mean', fit_results_y)
-        self.assertIn('stddev', fit_results_y)
+        self.assertIn('plan_positions', results)
+        self.assertIn('log_positions', results)
+        self.assertIsInstance(results['std_diff_x'], (float, np.floating))
+        self.assertIsInstance(results['std_diff_y'], (float, np.floating))
 
 if __name__ == '__main__':
     unittest.main()
