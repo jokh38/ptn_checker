@@ -36,13 +36,29 @@ class TestMain(unittest.TestCase):
 
         # Create a dummy DICOM file
         self.dcm_file = os.path.join(self.test_dir, "test.dcm")
-        self.create_dummy_dcm_file(self.dcm_file)
+        self.create_dummy_dcm_file(self.dcm_file, "G1") # Machine G1
+
+        # Create dummy config files in the root (or where main.py expects them)
+        self.create_dummy_config_file("scv_init_G1.txt")
+
 
     def tearDown(self):
         """Remove the temporary directory and its contents."""
         shutil.rmtree(self.test_dir)
+        # Clean up config file
+        if os.path.exists("scv_init_G1.txt"):
+            os.remove("scv_init_G1.txt")
 
-    def create_dummy_dcm_file(self, filepath):
+
+    def create_dummy_config_file(self, filename):
+        with open(filename, 'w') as f:
+            f.write("XPOSGAIN\t1.0\n")
+            f.write("YPOSGAIN\t1.0\n")
+            f.write("XPOSOFFSET\t0.0\n")
+            f.write("YPOSOFFSET\t0.0\n")
+
+
+    def create_dummy_dcm_file(self, filepath, machine_name="TestMachine"):
         """Creates a dummy DICOM file for testing."""
         file_meta = FileMetaDataset()
         file_meta.MediaStorageSOPClassUID = '1.2.840.10008.5.1.4.1.1.481.5'
@@ -54,25 +70,23 @@ class TestMain(unittest.TestCase):
         ds.PatientName = "Test^Patient"
         ds.PatientID = "123456"
 
-        # Add a dummy beam sequence
-        beam_sequence = Dataset()
-        beam_sequence.BeamName = "TestBeam"
+        ion_beam_sequence = Dataset()
+        ion_beam_sequence.TreatmentMachineName = machine_name
+        ion_beam_sequence.BeamNumber = 1
 
-        # Create a ControlPointSequence
-        cp_sequence = []
-        cp = Dataset()
-        cp.GantryAngle = 0
+        # Create two control points for a layer
+        cp1 = Dataset()
+        cp1.ControlPointIndex = '0'
+        cp1.CumulativeMetersetWeight = 0.0
+        cp1.add_new((0x300b, 0x1094), 'OB', b'\x00' * 8 * 10) # 10 spots
+        cp1.add_new((0x300b, 0x1096), 'OB', b'\x00' * 4 * 10)
 
-        # Create a BeamLimitingDevicePositionSequence
-        bld_sequence = Dataset()
-        bld_sequence.RTBeamLimitingDeviceType = 'MLCX'
-        bld_sequence.LeafJawPositions = [str(i) for i in range(120)] # Example leaf positions
+        cp2 = Dataset()
+        cp2.ControlPointIndex = '1'
+        cp2.CumulativeMetersetWeight = 10.0
 
-        cp.BeamLimitingDevicePositionSequence = [bld_sequence]
-        cp_sequence.append(cp)
-
-        beam_sequence.ControlPointSequence = cp_sequence
-        ds.BeamSequence = [beam_sequence]
+        ion_beam_sequence.IonControlPointSequence = [cp1, cp2]
+        ds.IonBeamSequence = [ion_beam_sequence]
 
         ds.file_meta = file_meta
         ds.is_little_endian = True

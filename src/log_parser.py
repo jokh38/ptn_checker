@@ -2,20 +2,17 @@ import numpy as np
 import os
 
 
-def parse_ptn_file(file_path: str) -> dict:
+def parse_ptn_file(file_path: str, config: dict) -> dict:
     """
-    Parses a .ptn binary log file into a dictionary of numpy arrays.
+    Parses a .ptn binary log file and applies coordinate transformation.
 
     Args:
         file_path: Path to the .ptn file.
+        config: A dictionary containing the transformation parameters
+                (XPOSGAIN, YPOSGAIN, XPOSOFFSET, YPOSOFFSET).
 
     Returns:
-        A dictionary where keys are descriptive strings and values are the
-        corresponding 1D numpy arrays.
-
-    Raises:
-        FileNotFoundError: If file_path does not exist.
-        ValueError: If the file data cannot be reshaped.
+        A dictionary with transformed coordinates and MU data.
     """
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"Error: File not found at {file_path}")
@@ -33,14 +30,24 @@ def parse_ptn_file(file_path: str) -> dict:
 
     data_2d = raw_data_1d.reshape(-1, 8)
 
-    raw_x_col = data_2d[:, 0]
-    raw_y_col = data_2d[:, 1]
+    raw_x_col = data_2d[:, 0].astype(np.float64) # 연산을 위해 float으로 변환
+    raw_y_col = data_2d[:, 1].astype(np.float64)
     dose1_col = data_2d[:, 4]
+
+    # 설정 값 가져오기
+    x_gain = config.get('XPOSGAIN', 1.0)
+    y_gain = config.get('YPOSGAIN', 1.0)
+    x_offset = config.get('XPOSOFFSET', 0.0)
+    y_offset = config.get('YPOSOFFSET', 0.0)
+
+    # 좌표 변환 적용
+    transformed_x = (raw_x_col - x_offset) * x_gain
+    transformed_y = (raw_y_col - y_offset) * y_gain
 
     mu = np.cumsum(dose1_col)
 
     return {
-        "x": raw_x_col,
-        "y": raw_y_col,
+        "x": transformed_x,
+        "y": transformed_y,
         "mu": mu,
     }

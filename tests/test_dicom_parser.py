@@ -35,8 +35,10 @@ class TestDicomParser(unittest.TestCase):
         ds.PatientName = "Test^Patient"
         ds.PatientID = "123456"
 
-        beam_sequence = Dataset()
-        beam_sequence.BeamName = "TestBeam"
+        ion_beam_sequence = Dataset()
+        ion_beam_sequence.TreatmentMachineName = "TestMachine"
+        ion_beam_sequence.BeamNumber = 1
+
 
         # Create first control point
         cp1 = Dataset()
@@ -62,8 +64,9 @@ class TestDicomParser(unittest.TestCase):
         cp2.add_new((0x300b, 0x1094), 'OB', b'\x00' * 8 * 10)
         cp2.add_new((0x300b, 0x1096), 'OB', b'\x00' * 4 * 10)
 
-        beam_sequence.ControlPointSequence = [cp1, cp2]
-        ds.BeamSequence = [beam_sequence]
+        ion_beam_sequence.IonControlPointSequence = [cp1, cp2]
+        ds.IonBeamSequence = [ion_beam_sequence]
+
 
         ds.file_meta = file_meta
         ds.is_little_endian = True
@@ -85,9 +88,11 @@ class TestDicomParser(unittest.TestCase):
         data = parse_dcm_file(self.dcm_file_path)
         self.assertIn("beams", data)
         self.assertIsInstance(data["beams"], dict)
+        self.assertIn("machine_name", data)
+        self.assertEqual(data['machine_name'], "TestMachine")
 
-        self.assertIn("TestBeam", data["beams"])
-        beam_data = data["beams"]["TestBeam"]
+        self.assertIn(1, data["beams"])
+        beam_data = data["beams"][1]
 
         self.assertIn("layers", beam_data)
         self.assertIsInstance(beam_data["layers"], dict)

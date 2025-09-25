@@ -30,9 +30,13 @@ class TestCalculator(unittest.TestCase):
         self.dcm_file_path = os.path.join(self.test_dir, "test.dcm")
         self.create_dummy_dcm_file(self.dcm_file_path)
 
-        self.log_data = parse_ptn_file(self.ptn_file_path)
+        self.config = {
+            'XPOSGAIN': 1.0, 'YPOSGAIN': 1.0,
+            'XPOSOFFSET': 0.0, 'YPOSOFFSET': 0.0
+        }
+        self.log_data = parse_ptn_file(self.ptn_file_path, self.config)
         plan_data = parse_dcm_file(self.dcm_file_path)
-        self.plan_layer = plan_data['beams']['TestBeam']['layers'][0]
+        self.plan_layer = plan_data['beams'][1]['layers'][0]
 
 
     def tearDown(self):
@@ -50,8 +54,9 @@ class TestCalculator(unittest.TestCase):
         ds.PatientName = "Test^Patient"
         ds.PatientID = "123456"
 
-        beam_sequence = Dataset()
-        beam_sequence.BeamName = "TestBeam"
+        ion_beam_sequence = Dataset()
+        ion_beam_sequence.TreatmentMachineName = "TestMachine"
+        ion_beam_sequence.BeamNumber = 1
 
         # Create first control point
         cp1 = Dataset()
@@ -77,8 +82,8 @@ class TestCalculator(unittest.TestCase):
         cp2.add_new((0x300b, 0x1094), 'OB', b'\x00' * 8 * 10)
         cp2.add_new((0x300b, 0x1096), 'OB', b'\x00' * 4 * 10)
 
-        beam_sequence.ControlPointSequence = [cp1, cp2]
-        ds.BeamSequence = [beam_sequence]
+        ion_beam_sequence.IonControlPointSequence = [cp1, cp2]
+        ds.IonBeamSequence = [ion_beam_sequence]
 
         ds.file_meta = file_meta
         ds.is_little_endian = True
