@@ -49,3 +49,4 @@ venv/
 # output files
 *.pdf
 *.csv
+.claude/settings.local.json
