@@ -4,6 +4,7 @@ import os
 def parse_ptn_file(file_path: str, config_params: dict) -> dict:
     """
     Parses a .ptn binary log file into a dictionary of numpy arrays.
+    Only includes data points where beam_on_off == 1 (Beam On state).
 
     Args:
         file_path: Path to the .ptn file.
@@ -14,7 +15,8 @@ def parse_ptn_file(file_path: str, config_params: dict) -> dict:
     Returns:
         A dictionary where keys are descriptive strings (e.g., "time_ms",
         "x_raw", "y_raw", "x_mm", "y_mm", etc.) and values are the
-        corresponding 1D numpy arrays.
+        corresponding 1D numpy arrays. All data is filtered to include
+        only "Beam On" states (beam_on_off == 1).
 
     Raises:
         FileNotFoundError: If file_path does not exist.
@@ -88,23 +90,45 @@ def parse_ptn_file(file_path: str, config_params: dict) -> dict:
     total_dose = dose1_col + dose2_col
     cumulative_mu = np.cumsum(total_dose)
 
-    # 10. Return Data as dictionary of 1D arrays
+    # 10. Filter data to include only "Beam On" states (beam_on_off == 1)
+    beam_on_mask = beam_on_off_col == 1
+
+    # Apply mask to all data arrays
+    filtered_time = time_column.flatten()[beam_on_mask]
+    filtered_x_raw = raw_x_col[beam_on_mask]
+    filtered_y_raw = raw_y_col[beam_on_mask]
+    filtered_x_size_raw = raw_x_size_col[beam_on_mask]
+    filtered_y_size_raw = raw_y_size_col[beam_on_mask]
+    filtered_dose1 = dose1_col[beam_on_mask]
+    filtered_dose2 = dose2_col[beam_on_mask]
+    filtered_layer_num = layer_num_col[beam_on_mask]
+    filtered_beam_on_off = beam_on_off_col[beam_on_mask]
+    filtered_x_mm = corrected_x_col[beam_on_mask]
+    filtered_y_mm = corrected_y_col[beam_on_mask]
+    filtered_x_size_mm = corrected_x_size_col[beam_on_mask]
+    filtered_y_size_mm = corrected_y_size_col[beam_on_mask]
+
+    # Recalculate cumulative MU for filtered data
+    filtered_total_dose = filtered_dose1 + filtered_dose2
+    filtered_cumulative_mu = np.cumsum(filtered_total_dose)
+
+    # 11. Return Data as dictionary of 1D arrays (filtered for Beam On only)
     return {
-        "time_ms": time_column.flatten(), # time_column is already 1D after reshape(-1,1).flatten() or direct
-        "x_raw": raw_x_col,
-        "y_raw": raw_y_col,
-        "x_size_raw": raw_x_size_col,
-        "y_size_raw": raw_y_size_col,
-        "dose1_au": dose1_col,
-        "dose2_au": dose2_col,
-        "layer_num": layer_num_col, # Consider converting to int if appropriate: .astype(np.int32)
-        "beam_on_off": beam_on_off_col, # Consider converting to int if appropriate
-        "x_mm": corrected_x_col,
-        "y_mm": corrected_y_col,
-        "x_size_mm": corrected_x_size_col,
-        "y_size_mm": corrected_y_size_col,
+        "time_ms": filtered_time,
+        "x_raw": filtered_x_raw,
+        "y_raw": filtered_y_raw,
+        "x_size_raw": filtered_x_size_raw,
+        "y_size_raw": filtered_y_size_raw,
+        "dose1_au": filtered_dose1,
+        "dose2_au": filtered_dose2,
+        "layer_num": filtered_layer_num,
+        "beam_on_off": filtered_beam_on_off,
+        "x_mm": filtered_x_mm,
+        "y_mm": filtered_y_mm,
+        "x_size_mm": filtered_x_size_mm,
+        "y_size_mm": filtered_y_size_mm,
         # Keys expected by calculator.py
-        "mu": cumulative_mu,
-        "x": corrected_x_col,
-        "y": corrected_y_col,
+        "mu": filtered_cumulative_mu,
+        "x": filtered_x_mm,
+        "y": filtered_y_mm,
     }

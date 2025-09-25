@@ -20,10 +20,14 @@ class TestCalculator(unittest.TestCase):
     def setUp(self):
         self.test_dir = tempfile.mkdtemp()
 
-        # Create dummy PTN file
+        # Create dummy PTN file with proper beam_on_off values
         self.ptn_file_path = os.path.join(self.test_dir, "test.ptn")
         # 10 spots * 8 shorts/spot = 80 shorts
+        # Data format: x_raw, y_raw, x_size_raw, y_size_raw, dose1, dose2, layer, beam_on_off
         dummy_ptn_data = np.arange(80, dtype='>u2')
+        # Set beam_on_off values to 1 (positions 7, 15, 23, 31, 39, 47, 55, 63, 71, 79)
+        for i in range(10):
+            dummy_ptn_data[i * 8 + 7] = 1  # beam_on_off = 1 for all spots
         dummy_ptn_data.tofile(self.ptn_file_path)
 
         # Create dummy DICOM file

@@ -34,6 +34,9 @@ class TestMain(unittest.TestCase):
             # Create proper binary PTN files (10 spots * 8 shorts/spot = 80 shorts)
             import numpy as np
             dummy_ptn_data = np.arange(80, dtype='>u2')
+            # Set beam_on_off values to 1 (positions 7, 15, 23, 31, 39, 47, 55, 63, 71, 79)
+            for i in range(10):
+                dummy_ptn_data[i * 8 + 7] = 1  # beam_on_off = 1 for all spots
             dummy_ptn_data.tofile(ptn_file)
 
         # Create a non-ptn file to ensure it's not picked up
