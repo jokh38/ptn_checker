@@ -10,11 +10,14 @@ logger = logging.getLogger(__name__)
 def _generate_error_bar_plot_for_beam(beam_name, layers_data):
     """Generates an error bar plot figure for a single beam."""
     num_layers = len(layers_data)
-    layer_indices = [layer['layer_index'] for layer in layers_data]
-    mean_diff_x = [layer['results']['mean_diff_x'] for layer in layers_data]
-    mean_diff_y = [layer['results']['mean_diff_y'] for layer in layers_data]
-    std_diff_x = [layer['results']['std_diff_x'] for layer in layers_data]
-    std_diff_y = [layer['results']['std_diff_y'] for layer in layers_data]
+            
+    layer_indices_even = [layer['layer_index'] for layer in layers_data if layer['layer_index'] % 2 == 0]
+    num_layers = len(layer_indices_even)
+    layer_indices = np.arange(1, num_layers + 1)
+    mean_diff_x = [layer['results']['mean_diff_x'] for layer in layers_data if layer['layer_index'] % 2 == 0]
+    mean_diff_y = [layer['results']['mean_diff_y'] for layer in layers_data if layer['layer_index'] % 2 == 0]
+    std_diff_x = [layer['results']['std_diff_x'] for layer in layers_data if layer['layer_index'] % 2 == 0]
+    std_diff_y = [layer['results']['std_diff_y'] for layer in layers_data if layer['layer_index'] % 2 == 0]
 
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8.27, 11.69))
     fig.suptitle(f'Position Difference (plan - log) - {beam_name}', fontsize=16)
