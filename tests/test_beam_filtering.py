@@ -3,10 +3,6 @@ import os
 import numpy as np
 import tempfile
 import shutil
-import sys
-
-# Add src to path to allow for imports
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.log_parser import parse_ptn_file
 
@@ -17,14 +13,15 @@ class TestBeamFiltering(unittest.TestCase):
         self.test_dir = tempfile.mkdtemp()
         self.ptn_file_path = os.path.join(self.test_dir, "test_beam_filtering.ptn")
 
-        # Create test data with mixed Beam On (1) and Beam Off (0) states
+        # Create test data with mixed Beam On and Beam Off states
         # Data format: x_raw, y_raw, x_size_raw, y_size_raw, dose1, dose2, layer, beam_on_off
+        # Beam On threshold: beam_on_off > 2**15 + 2**14 = 49152, so use 50000 for On, 0 for Off
         self.raw_data = np.array([
-            1000, 2000, 300, 400, 50, 60, 1, 1,  # Beam On
-            1010, 2020, 310, 410, 55, 65, 1, 0,  # Beam Off
-            1020, 2040, 320, 420, 60, 70, 1, 1,  # Beam On
-            1030, 2060, 330, 430, 65, 75, 1, 0,  # Beam Off
-            1040, 2080, 340, 440, 70, 80, 1, 1   # Beam On
+            1000, 2000, 300, 400, 50, 60, 1, 50000,  # Beam On
+            1010, 2020, 310, 410, 55, 65, 1, 0,      # Beam Off
+            1020, 2040, 320, 420, 60, 70, 1, 50000,  # Beam On
+            1030, 2060, 330, 430, 65, 75, 1, 0,      # Beam Off
+            1040, 2080, 340, 440, 70, 80, 1, 50000   # Beam On
         ], dtype='>u2')
         self.raw_data.tofile(self.ptn_file_path)
 
@@ -50,8 +47,8 @@ class TestBeamFiltering(unittest.TestCase):
         self.assertEqual(len(data['x_raw']), expected_count)
         self.assertEqual(len(data['beam_on_off']), expected_count)
 
-        # All beam_on_off values should be 1
-        np.testing.assert_array_equal(data['beam_on_off'], np.array([1, 1, 1]))
+        # All beam_on_off values should be 50000 (Beam On)
+        np.testing.assert_array_equal(data['beam_on_off'], np.array([50000, 50000, 50000], dtype=np.float32))
 
         # Check that the correct x_raw values are included (original indices 0, 2, 4)
         expected_x_raw = np.array([1000, 1020, 1040], dtype=np.float32)

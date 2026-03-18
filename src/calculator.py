@@ -1,5 +1,13 @@
+import logging
+
 import numpy as np
 from scipy.optimize import curve_fit
+
+logger = logging.getLogger(__name__)
+
+# Histogram parameters for position difference analysis
+HISTOGRAM_RANGE_MM = (-5, 5)  # histogram range in mm
+HISTOGRAM_BIN_STEP = 0.01  # histogram bin width in mm
 
 
 def gaussian(x, amplitude, mean, stddev):
@@ -21,6 +29,15 @@ def calculate_differences_for_layer(plan_layer, log_data, save_to_csv=False, csv
         A dictionary containing the analysis results for the layer.
     """
     results = {}
+
+    for key in ('cumulative_mu', 'positions'):
+        if key not in plan_layer:
+            return {'error': f"Missing required plan_layer key: '{key}'"}
+
+    for key in ('mu', 'x', 'y'):
+        if key not in log_data:
+            return {'error': f"Missing required log_data key: '{key}'"}
+
     plan_mu = plan_layer['cumulative_mu']
     plan_x = plan_layer['positions'][:, 0]
     plan_y = plan_layer['positions'][:, 1]
@@ -28,13 +45,6 @@ def calculate_differences_for_layer(plan_layer, log_data, save_to_csv=False, csv
     log_mu = log_data['mu']
     log_x = log_data['x']
     log_y = log_data['y']
-
-    # 1. 초기 데이터 확인
-    # print("\n--- [DEBUG] Initial Data Check ---")
-    # print(f"Plan X (first 5): {plan_x[:5]}")
-    # print(f"Plan Y (first 5): {plan_y[:5]}")
-    # print(f"Log X (first 5): {log_x[:5]}")
-    # print(f"Log Y (first 5): {log_y[:5]}")
 
     if len(plan_mu) == 0 or len(log_mu) == 0:
         return {'error': 'Empty data arrays'}
@@ -52,23 +62,12 @@ def calculate_differences_for_layer(plan_layer, log_data, save_to_csv=False, csv
     interp_plan_x = np.interp(log_mu_norm, plan_mu_norm, plan_x)
     interp_plan_y = np.interp(log_mu_norm, plan_mu_norm, plan_y)
 
-    # 2. 보간 후 데이터 확인
-    # print("--- [DEBUG] Interpolated Data Check ---")
-    # print(f"Interpolated Plan X (first 5): {interp_plan_x[:5]}")
-    # print(f"Interpolated Plan Y (first 5): {interp_plan_y[:5]}")
-
     diff_x = interp_plan_x - log_x
     diff_y = interp_plan_y - log_y
 
-    # 3. 최종 차이 값 확인
-    # print("--- [DEBUG] Final Difference Check ---")
-    # print(f"Difference X (first 5): {diff_x[:5]}")
-    # print(f"Difference Y (first 5): {diff_y[:5]}")
-
-    # 4. CSV 파일로 저장 (요청 시)
+    # Save to CSV if requested
     if save_to_csv:
-        print(f"--- [INFO] Saving data to {csv_filename} ---")
-        # PTN 파일의 모든 8개 위치 정보 포함
+        logger.info(f"Saving data to {csv_filename}")
         data_to_save = np.column_stack((
             log_mu_norm,
             interp_plan_x,
@@ -88,7 +87,7 @@ def calculate_differences_for_layer(plan_layer, log_data, save_to_csv=False, csv
     results['diff_x'] = diff_x
     results['diff_y'] = diff_y
 
-    bins = np.arange(-5, 5.01, 0.01)
+    bins = np.arange(HISTOGRAM_RANGE_MM[0], HISTOGRAM_RANGE_MM[1] + HISTOGRAM_BIN_STEP, HISTOGRAM_BIN_STEP)
     hist_x, _ = np.histogram(diff_x, bins=bins, density=True)
     hist_y, _ = np.histogram(diff_y, bins=bins, density=True)
     bin_centers = (bins[:-1] + bins[1:]) / 2

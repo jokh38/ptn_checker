@@ -1,4 +1,7 @@
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 def parse_scv_init(file_path: str) -> dict:
     """
@@ -26,6 +29,5 @@ def parse_scv_init(file_path: str) -> dict:
                     try:
                         config[key] = float(value)
                     except ValueError:
-                        # Ignore if value is not a valid float
-                        pass
+                        logger.warning(f"Ignoring non-numeric value '{value}' for key '{key}'")
     return config

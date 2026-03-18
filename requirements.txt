@@ -1,0 +1,4 @@
+numpy>=1.23
+scipy
+pydicom
+matplotlib

@@ -3,12 +3,7 @@ import os
 import numpy as np
 from unittest.mock import patch, MagicMock, call
 import shutil
-import matplotlib
-matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-
-import sys
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from src.report_generator import (
     generate_report,
@@ -16,6 +11,7 @@ from src.report_generator import (
     _generate_per_layer_position_plot,
     _save_plots_to_pdf_grid
 )
+
 
 class TestReportGenerator(unittest.TestCase):
 
@@ -99,20 +95,23 @@ class TestReportGenerator(unittest.TestCase):
 
     def test_generate_error_bar_plot_for_beam(self):
         beam_name = "Beam 1"
-        layers_data = self.report_data[beam_name]['layers']
+        beam = self.report_data.get(beam_name, {})
+        layers_data = beam.get('layers', [])
         fig = _generate_error_bar_plot_for_beam(beam_name, layers_data)
         self.assertIsInstance(fig, plt.Figure)
         plt.close(fig)
 
     def test_generate_per_layer_position_plot(self):
-        layer_data = self.report_data["Beam 1"]['layers'][0]
+        beam = self.report_data.get("Beam 1", {})
+        layer_data = beam.get('layers', [{}])[0]
+        results = layer_data.get('results', {})
         # Mock global coordinates for testing
         global_min_coords = np.array([0, 0])
         global_max_coords = np.array([10, 10])
         fig = _generate_per_layer_position_plot(
-            layer_data['results']['plan_positions'],
-            layer_data['results']['log_positions'],
-            layer_data['layer_index'],
+            results.get('plan_positions', np.empty((0, 2))),
+            results.get('log_positions', np.empty((0, 2))),
+            layer_data.get('layer_index', 0),
             "Beam 1",
             global_min_coords,
             global_max_coords
@@ -141,7 +140,8 @@ class TestReportGenerator(unittest.TestCase):
 
         generate_report(self.report_data, self.output_dir)
 
-        mock_error_bar_plot.assert_called_once_with("Beam 1", self.report_data["Beam 1"]['layers'])
+        expected_layers = self.report_data.get("Beam 1", {}).get('layers', [])
+        mock_error_bar_plot.assert_called_once_with("Beam 1", expected_layers)
 
         self.assertEqual(mock_per_layer_plot.call_count, 7)
         self.assertEqual(mock_save_grid.call_count, 2)

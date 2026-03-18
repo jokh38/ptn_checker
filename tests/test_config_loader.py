@@ -3,11 +3,8 @@ import os
 import tempfile
 import shutil
 
-# Add src to path to allow for imports
-import sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 from src.config_loader import parse_scv_init
+
 
 class TestConfigLoader(unittest.TestCase):
 

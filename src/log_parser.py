@@ -14,11 +14,26 @@ def parse_ptn_file(file_path: str, config_params: dict) -> dict:
                        'FILTERED_BEAM_ON_OFF' (defaults to 'on').
 
     Returns:
-        A dictionary where keys are descriptive strings (e.g., "time_ms",
-        "x_raw", "y_raw", "x_mm", "y_mm", etc.) and values are the
-        corresponding 1D numpy arrays. Data is filtered to include
-        only "Beam On" states (beam_on_off == 1) if FILTERED_BEAM_ON_OFF
-        is set to "on", otherwise includes all data points.
+        A dictionary with the following keys (all values are 1D numpy arrays):
+            - ``time_ms``      (float32): Elapsed time in ms (index * TIMEGAIN).
+            - ``x_raw``        (float32): Raw X position register value.
+            - ``y_raw``        (float32): Raw Y position register value.
+            - ``x_size_raw``   (float32): Raw X beam size register value.
+            - ``y_size_raw``   (float32): Raw Y beam size register value.
+            - ``dose1_au``     (float32): Dose channel 1 (arbitrary units).
+            - ``dose2_au``     (float32): Dose channel 2 (arbitrary units).
+            - ``layer_num``    (float32): Layer number from the log.
+            - ``beam_on_off``  (float32): Beam state flag.
+            - ``x_mm``         (float32): Calibrated X position in mm.
+            - ``y_mm``         (float32): Calibrated Y position in mm.
+            - ``x_size_mm``    (float32): Calibrated X beam size in mm.
+            - ``y_size_mm``    (float32): Calibrated Y beam size in mm.
+            - ``mu``           (float32): Cumulative MU (alias for filtered cumulative dose).
+            - ``x``            (float32): Alias for ``x_mm``.
+            - ``y``            (float32): Alias for ``y_mm``.
+
+        Data is filtered to include only "Beam On" states if
+        FILTERED_BEAM_ON_OFF is set to "on", otherwise all data points.
 
     Raises:
         FileNotFoundError: If file_path does not exist.

@@ -4,11 +4,8 @@ import numpy as np
 import tempfile
 import shutil
 
-# Add src to path to allow for imports
-import sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 from src.log_parser import parse_ptn_file
+
 
 class TestCorrectLogParser(unittest.TestCase):
 
@@ -17,10 +14,11 @@ class TestCorrectLogParser(unittest.TestCase):
         self.ptn_file_path = os.path.join(self.test_dir, "test.ptn")
 
         # Create a dummy binary .ptn file with 2 records (16 shorts)
-        # Data format: x_raw, y_raw, x_size_raw, y_size_raw, dose1, dose2, layer, beam_on
+        # Data format: x_raw, y_raw, x_size_raw, y_size_raw, dose1, dose2, layer, beam_on_off
+        # Beam On threshold: beam_on_off > 2**15 + 2**14 = 49152, so use 50000 for On
         self.raw_data = np.array([
-            1000, 2000, 300, 400, 50, 60, 1, 1,
-            1010, 2020, 310, 410, 55, 65, 1, 1
+            1000, 2000, 300, 400, 50, 60, 1, 50000,
+            1010, 2020, 310, 410, 55, 65, 1, 50000
         ], dtype='>u2')
         self.raw_data.tofile(self.ptn_file_path)
 
@@ -76,6 +74,31 @@ class TestCorrectLogParser(unittest.TestCase):
         expected_y_size_mm = np.array([400 * 0.2, 410 * 0.2]) # [80.0, 82.0]
         np.testing.assert_allclose(data['x_size_mm'], expected_x_size_mm, rtol=1e-6)
         np.testing.assert_allclose(data['y_size_mm'], expected_y_size_mm, rtol=1e-6)
+
+    def test_non_multiple_of_8_file(self):
+        """Test that a file with data not a multiple of 8 shorts raises ValueError."""
+        bad_file = os.path.join(self.test_dir, "bad.ptn")
+        # 7 shorts - not a multiple of 8
+        bad_data = np.array([1, 2, 3, 4, 5, 6, 7], dtype='>u2')
+        bad_data.tofile(bad_file)
+        with self.assertRaises(ValueError):
+            parse_ptn_file(bad_file, self.config)
+
+    def test_missing_config_key(self):
+        """Test that missing essential config keys raise KeyError."""
+        incomplete_config = {
+            'TIMEGAIN': 10.0,
+            'XPOSOFFSET': 500.0,
+            # Missing YPOSOFFSET, XPOSGAIN, YPOSGAIN
+        }
+        with self.assertRaises(KeyError):
+            parse_ptn_file(self.ptn_file_path, incomplete_config)
+
+    def test_nonexistent_file(self):
+        """Test that a non-existent file raises FileNotFoundError."""
+        with self.assertRaises(FileNotFoundError):
+            parse_ptn_file("/nonexistent/path/file.ptn", self.config)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -4,6 +4,22 @@ import os
 
 
 def F_SHI_spotW(spot_bytes):
+    """Decode a SHI proprietary 4-byte spot weight from binary data.
+
+    The SHI spot weight is encoded as a custom floating-point format in 4 bytes
+    (little-endian). The bytes encode an exponent and mantissa:
+      - byte 3 (x4): base-4 exponent offset by 64
+      - byte 2 (x3): high bit selects a power-of-2 multiplier; low 7 bits
+        contribute to the mantissa (fractional part at 2^-8)
+      - byte 1 (x2): mantissa contribution at 2^-16
+      - byte 0 (x1): mantissa contribution at 2^-24
+
+    Args:
+        spot_bytes: A 4-byte sequence in SHI proprietary binary format.
+
+    Returns:
+        The decoded spot weight as a float.
+    """
     temp_spot_x1 = int.from_bytes(spot_bytes[0:1], 'little')
     temp_spot_x2 = int.from_bytes(spot_bytes[1:2], 'little')
     temp_spot_x3 = int.from_bytes(spot_bytes[2:3], 'little')
@@ -15,6 +31,22 @@ def F_SHI_spotW(spot_bytes):
 
 
 def F_SHI_spotP(spot_bytes):
+    """Decode a SHI proprietary 2-byte spot position from binary data.
+
+    The SHI spot position is encoded in 2 bytes (little-endian) using a custom
+    sign-magnitude format with variable precision:
+      - byte 1 (x2): bit 7 encodes sign (0=positive, 1=negative);
+        bits 5-0 encode the magnitude exponent (det_pos_x2)
+      - byte 0 (x1): encodes the fractional difference from the base magnitude
+
+    The decoded position is in machine units (typically mm at isocenter).
+
+    Args:
+        spot_bytes: A 2-byte sequence in SHI proprietary binary format.
+
+    Returns:
+        The decoded spot position as a float (mm).
+    """
     temp_spot_x1 = int.from_bytes(spot_bytes[0:1], 'little')
     temp_spot_x2 = int.from_bytes(spot_bytes[1:2], 'little')
 
@@ -41,7 +73,9 @@ def parse_dcm_file(file_path: str) -> dict:
     plan = pydicom.dcmread(file_path)
     machine_name = getattr(plan.IonBeamSequence[0], 'TreatmentMachineName', 'UNKNOWN')
     plan_data = {'beams': {}, 'machine_name': machine_name}
-    # Fix: Use BeamSequence instead of IonBeamSequence
+    if not hasattr(plan, 'IonBeamSequence'):
+        raise AttributeError("DICOM file does not contain IonBeamSequence")
+
     for i, beam in enumerate(plan.IonBeamSequence):
         beam_description = getattr(beam, 'BeamDescription', '')
         beam_name = getattr(beam, 'BeamName', '')

@@ -7,71 +7,19 @@ import pydicom
 from pydicom.dataset import Dataset, FileMetaDataset
 from pydicom.uid import ImplicitVRLittleEndian
 
-# Add src to path to allow for imports
-import sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from tests.conftest import create_dummy_dcm_file
+from src.dicom_parser import parse_dcm_file, F_SHI_spotW, F_SHI_spotP
 
-from src.dicom_parser import parse_dcm_file
 
 class TestDicomParser(unittest.TestCase):
 
     def setUp(self):
         self.test_dir = tempfile.mkdtemp()
         self.dcm_file_path = os.path.join(self.test_dir, "test.dcm")
-        self.create_dummy_dcm_file(self.dcm_file_path)
+        create_dummy_dcm_file(self.dcm_file_path)
 
     def tearDown(self):
         shutil.rmtree(self.test_dir)
-
-    def create_dummy_dcm_file(self, filepath):
-        """Creates a dummy DICOM file for testing."""
-        file_meta = FileMetaDataset()
-        file_meta.MediaStorageSOPClassUID = '1.2.840.10008.5.1.4.1.1.481.5'
-        file_meta.MediaStorageSOPInstanceUID = "1.2.3"
-        file_meta.ImplementationClassUID = "1.2.3.4"
-        file_meta.TransferSyntaxUID = ImplicitVRLittleEndian
-
-        ds = Dataset()
-        ds.PatientName = "Test^Patient"
-        ds.PatientID = "123456"
-
-        ion_beam_sequence = Dataset()
-        ion_beam_sequence.TreatmentMachineName = "TestMachine"
-        ion_beam_sequence.BeamNumber = 1
-
-
-        # Create first control point
-        cp1 = Dataset()
-        cp1.ControlPointIndex = '0'
-        cp1.GantryAngle = 0
-        cp1.CumulativeMetersetWeight = 0.0
-        bld_sequence1 = Dataset()
-        bld_sequence1.RTBeamLimitingDeviceType = 'MLCX'
-        bld_sequence1.LeafJawPositions = [str(i) for i in range(120)]
-        cp1.BeamLimitingDevicePositionSequence = [bld_sequence1]
-        cp1.add_new((0x300b, 0x1094), 'OB', b'\x00' * 8 * 10)
-        cp1.add_new((0x300b, 0x1096), 'OB', b'\x00' * 4 * 10)
-
-        # Create second control point
-        cp2 = Dataset()
-        cp2.ControlPointIndex = '1'
-        cp2.GantryAngle = 0
-        cp2.CumulativeMetersetWeight = 10.0
-        bld_sequence2 = Dataset()
-        bld_sequence2.RTBeamLimitingDeviceType = 'MLCX'
-        bld_sequence2.LeafJawPositions = [str(i) for i in range(120)]
-        cp2.BeamLimitingDevicePositionSequence = [bld_sequence2]
-        cp2.add_new((0x300b, 0x1094), 'OB', b'\x00' * 8 * 10)
-        cp2.add_new((0x300b, 0x1096), 'OB', b'\x00' * 4 * 10)
-
-        ion_beam_sequence.IonControlPointSequence = [cp1, cp2]
-        ds.IonBeamSequence = [ion_beam_sequence]
-
-
-        ds.file_meta = file_meta
-        ds.is_little_endian = True
-        ds.is_implicit_VR = True
-        ds.save_as(filepath, write_like_original=False)
 
     def test_parse_dcm_file_smoke(self):
         """
@@ -110,6 +58,55 @@ class TestDicomParser(unittest.TestCase):
 
         self.assertEqual(layer_data["positions"].shape[1], 2)
         self.assertEqual(layer_data["positions"].shape[0], layer_data["mu"].shape[0])
+
+    def test_missing_ion_beam_sequence(self):
+        """Test that parse_dcm_file raises AttributeError when IonBeamSequence is missing."""
+        filepath = os.path.join(self.test_dir, "no_ion_beam.dcm")
+        file_meta = FileMetaDataset()
+        file_meta.MediaStorageSOPClassUID = pydicom.uid.UID('1.2.840.10008.5.1.4.1.1.481.5')
+        file_meta.MediaStorageSOPInstanceUID = pydicom.uid.UID("1.2.3")
+        file_meta.ImplementationClassUID = pydicom.uid.UID("1.2.3.4")
+        file_meta.TransferSyntaxUID = ImplicitVRLittleEndian
+
+        ds = Dataset()
+        ds.PatientName = "Test^Patient"
+        ds.PatientID = "123456"
+        # Intentionally no IonBeamSequence
+        ds.file_meta = file_meta
+        ds.is_little_endian = True
+        ds.is_implicit_VR = True
+        ds.save_as(filepath, write_like_original=False)
+
+        with self.assertRaises(AttributeError):
+            parse_dcm_file(filepath)
+
+    def test_F_SHI_spotW_known_values(self):
+        """Test F_SHI_spotW with known input bytes and expected output."""
+        # All zeros should produce a specific small value
+        result = F_SHI_spotW(b'\x00\x00\x00\x00')
+        self.assertIsInstance(result, float)
+        # Zero exponent bytes: 2^(0//128) * 4^(-64+0) * (0.5 + 0) = 1 * 4^-64 * 0.5
+        expected = 2**(0 // 128) * 4**(-64 + 0) * (0.5 + 0)
+        self.assertAlmostEqual(result, expected, places=30)
+
+    def test_F_SHI_spotP_known_values(self):
+        """Test F_SHI_spotP with known input bytes and expected output."""
+        # Test with zero bytes
+        result = F_SHI_spotP(b'\x00\x00')
+        self.assertIsInstance(result, float)
+
+        # With bytes [0x80, 0x00]: x1=128, x2=0
+        # sign=1, det_pos_x3=0, det_pos_x2=0, det_pos_x1=0
+        # ind_helper=8-(2*1+1)+abs(1-1)=5, real_diff=0/32=0
+        # x_real = 1*(4-0) = 4.0
+        result2 = F_SHI_spotP(b'\x80\x00')
+        self.assertAlmostEqual(result2, 4.0)
+
+    def test_F_SHI_spotP_negative_position(self):
+        """Test F_SHI_spotP produces negative values for high byte1."""
+        # byte1 (x2) >= 128 means negative sign
+        result = F_SHI_spotP(b'\x80\x80')
+        self.assertLess(result, 0)
 
 
 if __name__ == '__main__':

@@ -4,22 +4,24 @@ import numpy as np
 import os
 import logging
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Figure size constants
+A4_FIGSIZE = (8.27, 11.69)  # A4 paper size in inches
+POSITION_PLOT_FIGSIZE = (8, 8)
 
 def _generate_error_bar_plot_for_beam(beam_name, layers_data):
     """Generates an error bar plot figure for a single beam."""
-    num_layers = len(layers_data)
-            
-    layer_indices_even = [layer['layer_index'] for layer in layers_data if layer['layer_index'] % 2 == 0]
-    num_layers = len(layer_indices_even)
+    even_layers = [layer for layer in layers_data
+                   if layer.get('layer_index', 1) % 2 == 0]
+    num_layers = len(even_layers)
     layer_indices = np.arange(1, num_layers + 1)
-    mean_diff_x = [layer['results']['mean_diff_x'] for layer in layers_data if layer['layer_index'] % 2 == 0]
-    mean_diff_y = [layer['results']['mean_diff_y'] for layer in layers_data if layer['layer_index'] % 2 == 0]
-    std_diff_x = [layer['results']['std_diff_x'] for layer in layers_data if layer['layer_index'] % 2 == 0]
-    std_diff_y = [layer['results']['std_diff_y'] for layer in layers_data if layer['layer_index'] % 2 == 0]
+    mean_diff_x = [layer.get('results', {}).get('mean_diff_x', 0) for layer in even_layers]
+    mean_diff_y = [layer.get('results', {}).get('mean_diff_y', 0) for layer in even_layers]
+    std_diff_x = [layer.get('results', {}).get('std_diff_x', 0) for layer in even_layers]
+    std_diff_y = [layer.get('results', {}).get('std_diff_y', 0) for layer in even_layers]
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8.27, 11.69))
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=A4_FIGSIZE)
     fig.suptitle(f'Position Difference (plan - log) - {beam_name}', fontsize=16)
 
     # X-position difference plot
@@ -36,7 +38,7 @@ def _generate_error_bar_plot_for_beam(beam_name, layers_data):
     ax2.set_ylabel('Difference (mm)')
     ax2.grid(True)
 
-    fig.tight_layout(rect=[0, 0, 1, 0.96])
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
     return fig
 
 def _generate_per_layer_position_plot(plan_positions, log_positions, layer_index, beam_name, global_min_coords, global_max_coords):
@@ -48,7 +50,7 @@ def _generate_per_layer_position_plot(plan_positions, log_positions, layer_index
         (log_positions[:, 1] >= global_min_coords[1]) & (log_positions[:, 1] <= global_max_coords[1])
     ]
 
-    fig, ax = plt.subplots(figsize=(8, 8))
+    fig, ax = plt.subplots(figsize=POSITION_PLOT_FIGSIZE)
 
     ax.plot(plan_positions[:, 0], plan_positions[:, 1], 'r-', linewidth=1, label='Plan')
 
@@ -71,7 +73,7 @@ def _generate_per_layer_position_plot(plan_positions, log_positions, layer_index
 
 def _save_plots_to_pdf_grid(pdf, plots, beam_name):
     """Saves up to 6 plots to a single PDF page in a 3x2 grid."""
-    fig = plt.figure(figsize=(8.27, 11.69))
+    fig = plt.figure(figsize=A4_FIGSIZE)
     fig.suptitle(f'2D Position Comparison - {beam_name}', fontsize=16)
 
     for i, plot_fig in enumerate(plots):
@@ -103,7 +105,7 @@ def _save_plots_to_pdf_grid(pdf, plots, beam_name):
 
         plt.close(plot_fig) # Close the original figure to save memory
 
-    fig.tight_layout(rect=[0, 0.03, 1, 0.95])
+    fig.tight_layout(rect=(0, 0.03, 1, 0.95))
     pdf.savefig(fig)
     plt.close(fig)
 
@@ -129,8 +131,10 @@ def generate_report(report_data, output_dir):
             # 2. Calculate global coordinate bounds for the beam
             all_plan_positions = []
             for layer_data in beam_data['layers']:
-                plan_pos = layer_data['results']['plan_positions']
-                all_plan_positions.append(plan_pos)
+                results = layer_data.get('results', {})
+                plan_pos = results.get('plan_positions')
+                if plan_pos is not None:
+                    all_plan_positions.append(plan_pos)
 
             if all_plan_positions:
                 all_plan_positions = np.vstack(all_plan_positions)
@@ -148,9 +152,12 @@ def generate_report(report_data, output_dir):
                 layer_plots = []
 
                 for layer_data in batch_layers:
-                    layer_index = layer_data['layer_index']
-                    plan_pos = layer_data['results']['plan_positions']
-                    log_pos = layer_data['results']['log_positions']
+                    layer_index = layer_data.get('layer_index', 0)
+                    results = layer_data.get('results', {})
+                    plan_pos = results.get('plan_positions')
+                    log_pos = results.get('log_positions')
+                    if plan_pos is None or log_pos is None:
+                        continue
 
                     layer_fig = _generate_per_layer_position_plot(plan_pos, log_pos, layer_index, beam_name, global_min_coords, global_max_coords)
                     layer_plots.append(layer_fig)
