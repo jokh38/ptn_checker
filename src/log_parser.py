@@ -148,6 +148,58 @@ def parse_ptn_file(file_path: str, config_params: dict) -> dict:
         filtered_y_size_mm = corrected_y_size_col
         filtered_cumulative_mu = cumulative_mu
 
+    # 10b. Filter leading beam-on samples stuck at scanning magnet alignment position
+    # The first 1-2 beam-on samples often show Y at the magnet's alignment/transit
+    # position (gantry-dependent) before the magnet settles to the planned spot.
+    # These carry ~zero dose and create spurious max_abs_diff_y of 250-310 mm.
+    ALIGNMENT_TOLERANCE_MM = 1.0   # max deviation from alignment to count as outlier
+    ALIGNMENT_CONFIRM_MM = 5.0     # max deviation from config value to confirm pattern
+    N_PRE_BEAM_SAMPLES = 3         # number of pre-beam-on samples to average
+
+    alignment_y = config_params.get('ALIGNMENT_Y_POSITION')
+    if alignment_y is not None and filtered_beam_enabled:
+        alignment_y = float(alignment_y)
+
+        # Find indices where beam transitions from off to on in the unfiltered data
+        beam_on_indices = np.where(beam_on_mask)[0]
+
+        if len(beam_on_indices) > 0:
+            first_beam_on_idx = beam_on_indices[0]
+
+            # Extract pre-beam-on Y samples (in raw units, convert to mm)
+            pre_start = max(0, first_beam_on_idx - N_PRE_BEAM_SAMPLES)
+            pre_end = first_beam_on_idx
+            if pre_end > pre_start:
+                pre_beam_y_mm = (raw_y_col[pre_start:pre_end] - ypos_offset) * ypos_gain
+                pre_beam_mean_y = np.mean(pre_beam_y_mm)
+
+                # Confirm this is actually the alignment pattern
+                if abs(pre_beam_mean_y - alignment_y) < ALIGNMENT_CONFIRM_MM:
+                    # Count leading beam-on samples that are still at alignment position
+                    n_outliers = 0
+                    for i in range(len(filtered_y_mm)):
+                        if abs(filtered_y_mm[i] - pre_beam_mean_y) < ALIGNMENT_TOLERANCE_MM:
+                            n_outliers += 1
+                        else:
+                            break  # magnet has settled
+
+                    if n_outliers > 0:
+                        # Slice all filtered arrays to remove alignment outliers
+                        filtered_time = filtered_time[n_outliers:]
+                        filtered_x_raw = filtered_x_raw[n_outliers:]
+                        filtered_y_raw = filtered_y_raw[n_outliers:]
+                        filtered_x_size_raw = filtered_x_size_raw[n_outliers:]
+                        filtered_y_size_raw = filtered_y_size_raw[n_outliers:]
+                        filtered_dose1 = filtered_dose1[n_outliers:]
+                        filtered_dose2 = filtered_dose2[n_outliers:]
+                        filtered_layer_num = filtered_layer_num[n_outliers:]
+                        filtered_beam_on_off = filtered_beam_on_off[n_outliers:]
+                        filtered_x_mm = filtered_x_mm[n_outliers:]
+                        filtered_y_mm = filtered_y_mm[n_outliers:]
+                        filtered_x_size_mm = filtered_x_size_mm[n_outliers:]
+                        filtered_y_size_mm = filtered_y_size_mm[n_outliers:]
+                        filtered_cumulative_mu = np.cumsum(filtered_dose1)
+
     # 11. Filter out hardware default register values (position out of range)
     # Hardware defaults have x_raw > 65000; use min of config value and 60000
     # to ensure defaults are always caught regardless of config setting

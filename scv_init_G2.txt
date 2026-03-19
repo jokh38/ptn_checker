@@ -94,3 +94,7 @@ COEFF_GY_PER_MU	0.07094
 # BEAM FILTERING CONTROL
 # Set to "on" to filter log files for beam_on_off == 1 only, "off" to include all data
 FILTERED_BEAM_ON_OFF	on
+#
+# BEAM ALIGNMENT Y POSITION [mm]
+# Y position where the scanning magnet rests during beam alignment before each layer
+ALIGNMENT_Y_POSITION	-232.0
