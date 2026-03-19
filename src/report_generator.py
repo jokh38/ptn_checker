@@ -12,14 +12,12 @@ POSITION_PLOT_FIGSIZE = (8, 8)
 
 def _generate_error_bar_plot_for_beam(beam_name, layers_data):
     """Generates an error bar plot figure for a single beam."""
-    even_layers = [layer for layer in layers_data
-                   if layer.get('layer_index', 1) % 2 == 0]
-    num_layers = len(even_layers)
+    num_layers = len(layers_data)
     layer_indices = np.arange(1, num_layers + 1)
-    mean_diff_x = [layer.get('results', {}).get('mean_diff_x', 0) for layer in even_layers]
-    mean_diff_y = [layer.get('results', {}).get('mean_diff_y', 0) for layer in even_layers]
-    std_diff_x = [layer.get('results', {}).get('std_diff_x', 0) for layer in even_layers]
-    std_diff_y = [layer.get('results', {}).get('std_diff_y', 0) for layer in even_layers]
+    mean_diff_x = [layer.get('results', {}).get('mean_diff_x', 0) for layer in layers_data]
+    mean_diff_y = [layer.get('results', {}).get('mean_diff_y', 0) for layer in layers_data]
+    std_diff_x = [layer.get('results', {}).get('std_diff_x', 0) for layer in layers_data]
+    std_diff_y = [layer.get('results', {}).get('std_diff_y', 0) for layer in layers_data]
 
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=A4_FIGSIZE)
     fig.suptitle(f'Position Difference (plan - log) - {beam_name}', fontsize=16)
@@ -62,7 +60,7 @@ def _generate_per_layer_position_plot(plan_positions, log_positions, layer_index
 
     ax.set_xlabel('X Position (mm)')
     ax.set_ylabel('Y Position (mm)')
-    ax.set_title(f'2D Position - Layer {layer_index + 1}')
+    ax.set_title(f'2D Position - Layer {layer_index // 2 + 1}')
     ax.legend()
     ax.grid(True)
     ax.set_aspect('equal', adjustable='box')
