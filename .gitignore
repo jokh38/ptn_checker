@@ -53,3 +53,4 @@ venv/
 
 # IDE / tool metadata
 .omc/
+.worktrees/
