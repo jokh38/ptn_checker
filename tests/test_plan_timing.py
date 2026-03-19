@@ -10,11 +10,13 @@ from src.plan_timing import (
 
 
 class TestPlanTiming(unittest.TestCase):
-    def test_load_doserate_table_parses_matlab_format(self):
+    def test_load_doserate_table_parses_csv_format(self):
         table = load_doserate_table()
+        self.assertEqual(table.ndim, 2)
         self.assertEqual(table.shape[1], 2)
         self.assertGreater(table.shape[0], 0)
         self.assertEqual(table[0, 0], 230.0)
+        self.assertEqual(table[0, 1], 20.0)
 
     def test_get_doserate_for_energy_returns_table_value(self):
         value = get_doserate_for_energy(150.0)

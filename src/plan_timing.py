@@ -15,21 +15,13 @@ def _doserate_file_path() -> Path:
 
 @lru_cache(maxsize=1)
 def load_doserate_table() -> np.ndarray:
-    values = []
-    with _doserate_file_path().open("r", encoding="utf-8") as file_obj:
-        for line_number, raw_line in enumerate(file_obj):
-            if line_number == 0:
-                continue
-            cleaned = (
-                raw_line.replace("[", " ").replace("]", " ").replace(";", " ").strip()
-            )
-            if not cleaned:
-                continue
-            parts = cleaned.split()
-            if len(parts) != 2:
-                continue
-            values.append((float(parts[0]), float(parts[1])))
-    return np.asarray(values, dtype=float)
+    table = np.loadtxt(
+        _doserate_file_path(),
+        delimiter=",",
+        dtype=float,
+        encoding="utf-8-sig",
+    )
+    return np.atleast_2d(table)
 
 
 def get_doserate_for_energy(energy: float) -> float:
