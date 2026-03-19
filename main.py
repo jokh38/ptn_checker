@@ -23,7 +23,7 @@ def find_ptn_files(directory):
                 ptn_files.append(os.path.join(root, file))
     return ptn_files
 
-def run_analysis(log_dir, dcm_file, output_dir):
+def run_analysis(log_dir, dcm_file, output_dir, report_style='summary'):
     """
     Runs the analysis on the given DICOM and PTN files and generates plot images.
     """
@@ -138,7 +138,7 @@ def run_analysis(log_dir, dcm_file, output_dir):
         raise ValueError("No analysis results were generated. Check logs for warnings.")
 
     logger.info(f"Generating PDF report in directory: {output_dir}")
-    generate_report(report_data, output_dir)
+    generate_report(report_data, output_dir, report_style=report_style)
     logger.info("Done.")
 
 def main():
@@ -152,10 +152,13 @@ def main():
                         help="Path to the DICOM RTPLAN file.")
     parser.add_argument("-o", "--output", default="analysis_report",
                         help="Directory to save the output plot images.")
+    parser.add_argument("--report-style", choices=["summary", "classic"],
+                        default="summary",
+                        help="Report format: 'summary' (one page per beam) or 'classic' (multi-page detailed).")
     args = parser.parse_args()
 
     try:
-        run_analysis(args.log_dir, args.dcm_file, args.output)
+        run_analysis(args.log_dir, args.dcm_file, args.output, report_style=args.report_style)
     except (FileNotFoundError, ValueError) as e:
         logger.error(f"{e}")
         sys.exit(1)
