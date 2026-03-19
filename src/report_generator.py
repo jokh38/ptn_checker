@@ -180,17 +180,22 @@ def _layer_passes(results):
     return mean_ok and std_ok and max_ok
 
 
-def _generate_summary_page(beam_name, beam_data):
+def _generate_summary_page(beam_name, beam_data, patient_id="", patient_name=""):
     """
     Generates a one-page A4 summary dashboard for a single beam.
 
     Layout:
-        Header text area (top): beam name, layer count, pass rate, global metrics
-        Top-left: Combined X+Y error bar plot with tolerance band
-        Top-right: Layer heatmap (layers x 4 metrics) with RdYlGn_r colormap
-        Bottom-left: Pooled histogram of diff_x/diff_y with Gaussian fit
-        Bottom-right: Table of flagged layers (or "All layers within tolerance")
+        Title bar (top): large beam name + pass/fail badge
+        Info row: Patient ID, Patient Name, Date, Layer count
+        Metrics table: 2-row table (X/Y) with Mean, Std, RMSE, Max, P95 + Similarity
+        2x2 plot grid:
+            Top-left: Combined X+Y error bar plot with tolerance band
+            Top-right: Layer heatmap (layers x 4 metrics) with RdYlGn_r colormap
+            Bottom-left: Pooled histogram of diff_x/diff_y with Gaussian fit
+            Bottom-right: Table of flagged layers (or "All layers within tolerance")
     """
+    from datetime import date as _date
+
     layers_data = beam_data["layers"]
     num_layers = len(layers_data)
 
@@ -199,6 +204,7 @@ def _generate_summary_page(beam_name, beam_data):
     std_x_all, std_y_all = [], []
     rmse_x_all, rmse_y_all = [], []
     max_x_all, max_y_all = [], []
+    p95_x_all, p95_y_all = [], []
     all_diff_x, all_diff_y = [], []
     all_plan_pos, all_log_pos = [], []
     pass_flags = []
@@ -206,7 +212,8 @@ def _generate_summary_page(beam_name, beam_data):
 
     for layer in layers_data:
         r = layer.get("results", {})
-        layer_labels.append(str(layer.get("layer_index", "?")))
+        raw_idx = layer.get("layer_index", 0)
+        layer_labels.append(str(int(raw_idx) // 2 + 1))
 
         mean_x_all.append(r.get("mean_diff_x", 0))
         mean_y_all.append(r.get("mean_diff_y", 0))
@@ -216,6 +223,8 @@ def _generate_summary_page(beam_name, beam_data):
         rmse_y_all.append(r.get("rmse_y", 0))
         max_x_all.append(r.get("max_abs_diff_x", 0))
         max_y_all.append(r.get("max_abs_diff_y", 0))
+        p95_x_all.append(r.get("p95_abs_diff_x", 0))
+        p95_y_all.append(r.get("p95_abs_diff_y", 0))
 
         if "diff_x" in r:
             all_diff_x.append(r["diff_x"])
@@ -243,6 +252,8 @@ def _generate_summary_page(beam_name, beam_data):
     global_rmse_y = np.mean(rmse_y_all) if rmse_y_all else 0
     global_max_x = max(max_x_all) if max_x_all else 0
     global_max_y = max(max_y_all) if max_y_all else 0
+    global_p95_x = np.mean(p95_x_all) if p95_x_all else 0
+    global_p95_y = np.mean(p95_y_all) if p95_y_all else 0
 
     # Similarity index: Pearson correlation of concatenated plan vs log positions
     similarity_str = "N/A"
@@ -253,82 +264,88 @@ def _generate_summary_page(beam_name, beam_data):
             corr, _ = pearsonr(plan_concat, log_concat)
             similarity_str = f"{corr:.6f}"
 
-    # --- Build the figure ---
-    fig = plt.figure(figsize=A4_FIGSIZE)
-
-    # Reserve top 18% for header, bottom 82% for 2x2 grid
-    header_height = 0.18
-    grid_bottom = 0.04
-    grid_top = 1.0 - header_height - 0.02
-
-    # Header text
     pass_color = (
         "#2ecc71" if pass_rate == 100 else ("#e67e22" if pass_rate >= 80 else "#e74c3c")
     )
-    header_lines = (
-        f"{beam_name}    |    Layers: {num_layers}    |    "
-        f"Pass rate: {num_pass}/{num_layers} ({pass_rate:.0f}%)\n"
-        f"Mean X/Y: {global_mean_x:+.3f} / {global_mean_y:+.3f} mm    "
-        f"Std X/Y: {global_std_x:.3f} / {global_std_y:.3f} mm    "
-        f"RMSE X/Y: {global_rmse_x:.3f} / {global_rmse_y:.3f} mm\n"
-        f"Max |err| X/Y: {global_max_x:.3f} / {global_max_y:.3f} mm    "
-        f"Similarity (Pearson r): {similarity_str}"
+
+    # --- Build the figure ---
+    fig = plt.figure(figsize=A4_FIGSIZE)
+
+    # Layout: title (top 4%), info row (3%), metrics table (12%), plots (remaining)
+    # -- Title bar --
+    fig.text(
+        0.50, 0.97, beam_name,
+        ha="center", va="top", fontsize=16, fontweight="bold",
+    )
+    # Pass rate badge
+    badge_text = f"PASS {num_pass}/{num_layers} ({pass_rate:.0f}%)"
+    fig.text(
+        0.95, 0.97, badge_text,
+        ha="right", va="top", fontsize=10, fontweight="bold", color="white",
+        bbox=dict(boxstyle="round,pad=0.3", facecolor=pass_color, edgecolor="none"),
+    )
+
+    # -- Patient info row --
+    info_text = (
+        f"Patient ID: {patient_id}    |    "
+        f"Name: {patient_name}    |    "
+        f"Date: {_date.today().isoformat()}    |    "
+        f"Layers: {num_layers}"
     )
     fig.text(
-        0.5,
-        1.0 - header_height / 2,
-        header_lines,
-        ha="center",
-        va="center",
-        fontsize=9,
-        family="monospace",
-        bbox=dict(
-            boxstyle="round,pad=0.5",
-            facecolor="#f0f0f0",
-            edgecolor=pass_color,
-            linewidth=2,
-        ),
+        0.50, 0.935, info_text,
+        ha="center", va="top", fontsize=8, color="#555555",
     )
 
-    # 2x2 subplot grid
+    # -- Metrics table panel --
+    ax_metrics = fig.add_axes([0.08, 0.855, 0.84, 0.07])
+    ax_metrics.axis("off")
+    col_labels = ["", "Mean (mm)", "Std (mm)", "RMSE (mm)", "Max |err| (mm)", "P95 (mm)", "Similarity (r)"]
+    row_x = ["X", f"{global_mean_x:+.3f}", f"{global_std_x:.3f}", f"{global_rmse_x:.3f}",
+             f"{global_max_x:.3f}", f"{global_p95_x:.3f}", similarity_str]
+    row_y = ["Y", f"{global_mean_y:+.3f}", f"{global_std_y:.3f}", f"{global_rmse_y:.3f}",
+             f"{global_max_y:.3f}", f"{global_p95_y:.3f}", ""]
+    metrics_table = ax_metrics.table(
+        cellText=[row_x, row_y], colLabels=col_labels,
+        loc="center", cellLoc="center",
+    )
+    metrics_table.auto_set_font_size(False)
+    metrics_table.set_fontsize(7)
+    metrics_table.scale(1.0, 1.4)
+    # Style header row
+    for j in range(len(col_labels)):
+        metrics_table[0, j].set_facecolor("#34495e")
+        metrics_table[0, j].set_text_props(color="white", fontweight="bold")
+    # Style axis label cells
+    metrics_table[1, 0].set_facecolor("#3498db")
+    metrics_table[1, 0].set_text_props(color="white", fontweight="bold")
+    metrics_table[2, 0].set_facecolor("#e67e22")
+    metrics_table[2, 0].set_text_props(color="white", fontweight="bold")
+
+    # Layout: left column (2 plots stacked), right column (full-height colored layer table)
     gs = fig.add_gridspec(
-        2,
-        2,
-        left=0.10,
-        right=0.95,
-        bottom=grid_bottom,
-        top=grid_top,
-        hspace=0.35,
-        wspace=0.30,
+        2, 2,
+        left=0.08, right=0.97,
+        bottom=0.04, top=0.83,
+        hspace=0.30, wspace=0.25,
+        width_ratios=[1, 1.2],
     )
 
-    # --- Top-left: Error bar plot (X and Y combined) ---
+    # --- Left-top: Error bar plot (X and Y combined) ---
     ax_err = fig.add_subplot(gs[0, 0])
     layer_idx = np.arange(1, num_layers + 1)
     ax_err.errorbar(
-        layer_idx,
-        mean_x_all,
-        yerr=std_x_all,
-        fmt="o-",
-        capsize=3,
-        markersize=3,
-        linewidth=0.8,
-        label="X",
-        color="#3498db",
+        layer_idx, mean_x_all, yerr=std_x_all,
+        fmt="o-", capsize=3, markersize=3, linewidth=0.8,
+        label="X", color="#3498db",
     )
     ax_err.errorbar(
-        layer_idx,
-        mean_y_all,
-        yerr=std_y_all,
-        fmt="s-",
-        capsize=3,
-        markersize=3,
-        linewidth=0.8,
-        label="Y",
-        color="#e67e22",
+        layer_idx, mean_y_all, yerr=std_y_all,
+        fmt="s-", capsize=3, markersize=3, linewidth=0.8,
+        label="Y", color="#e67e22",
     )
     tol = THRESHOLDS["mean_diff_mm"]
-    ax_err.axhspan(-tol, tol, alpha=0.12, color="green", label=f"±{tol} mm tol.")
+    ax_err.axhspan(-tol, tol, alpha=0.12, color="green", label=f"\u00b1{tol} mm tol.")
     ax_err.set_xlabel("Layer", fontsize=7)
     ax_err.set_ylabel("Mean diff (mm)", fontsize=7)
     ax_err.set_title("Position Error by Layer", fontsize=8)
@@ -336,56 +353,16 @@ def _generate_summary_page(beam_name, beam_data):
     ax_err.tick_params(labelsize=6)
     ax_err.grid(True, alpha=0.3)
 
-    # --- Top-right: Layer heatmap ---
-    ax_heat = fig.add_subplot(gs[0, 1])
-    heatmap_data = np.column_stack(
-        [np.abs(mean_x_all), np.abs(mean_y_all), std_x_all, std_y_all]
-    )  # shape: (num_layers, 4)
-    if num_layers > 0:
-        im = ax_heat.imshow(
-            heatmap_data.T,
-            aspect="auto",
-            cmap="RdYlGn_r",
-            norm=Normalize(vmin=0, vmax=THRESHOLDS["max_abs_diff_mm"]),
-        )
-        ax_heat.set_yticks([0, 1, 2, 3])
-        ax_heat.set_yticklabels(["|mean_x|", "|mean_y|", "std_x", "std_y"], fontsize=6)
-        ax_heat.set_xlabel("Layer", fontsize=7)
-        ax_heat.set_title("Metrics Heatmap", fontsize=8)
-        ax_heat.tick_params(labelsize=6)
-        # Show layer numbers on x-axis (subsample if too many)
-        if num_layers <= 30:
-            ax_heat.set_xticks(range(num_layers))
-            ax_heat.set_xticklabels(layer_labels, fontsize=5, rotation=90)
-        else:
-            step = max(1, num_layers // 20)
-            ticks = list(range(0, num_layers, step))
-            ax_heat.set_xticks(ticks)
-            ax_heat.set_xticklabels(
-                [layer_labels[i] for i in ticks], fontsize=5, rotation=90
-            )
-        fig.colorbar(im, ax=ax_heat, fraction=0.046, pad=0.04).ax.tick_params(
-            labelsize=6
-        )
-    else:
-        ax_heat.text(
-            0.5, 0.5, "No data", ha="center", va="center", transform=ax_heat.transAxes
-        )
-
-    # --- Bottom-left: Pooled histogram with Gaussian fit ---
+    # --- Left-bottom: Pooled histogram with Gaussian fit ---
     ax_hist = fig.add_subplot(gs[1, 0])
     if all_diff_x and all_diff_y:
         pooled_x = np.concatenate(all_diff_x)
         pooled_y = np.concatenate(all_diff_y)
         bins = np.arange(-5, 5.01, 0.05)
-        ax_hist.hist(
-            pooled_x, bins=bins, density=True, alpha=0.5, color="#3498db", label="X"
-        )
-        ax_hist.hist(
-            pooled_y, bins=bins, density=True, alpha=0.5, color="#e67e22", label="Y"
-        )
+        ax_hist.hist(pooled_x, bins=bins, density=True, alpha=0.5, color="#3498db", label="X")
+        ax_hist.hist(pooled_y, bins=bins, density=True, alpha=0.5, color="#e67e22", label="Y")
         bin_centers = (bins[:-1] + bins[1:]) / 2
-        for pooled, color, label in [
+        for pooled, color, lbl in [
             (pooled_x, "#3498db", "X fit"),
             (pooled_y, "#e67e22", "Y fit"),
         ]:
@@ -393,15 +370,12 @@ def _generate_summary_page(beam_name, beam_data):
             try:
                 popt, _ = curve_fit(_gaussian, bin_centers, hist_vals, p0=[1, 0, 1])
                 ax_hist.plot(
-                    bin_centers,
-                    _gaussian(bin_centers, *popt),
-                    "-",
-                    color=color,
-                    linewidth=1.5,
-                    label=f"{label} (μ={popt[1]:.2f}, σ={abs(popt[2]):.2f})",
+                    bin_centers, _gaussian(bin_centers, *popt), "-",
+                    color=color, linewidth=1.5,
+                    label=f"{lbl} (\u03bc={popt[1]:.2f}, \u03c3={abs(popt[2]):.2f})",
                 )
             except RuntimeError:
-                logger.debug(f"Gaussian fit failed for {label}, skipping fit curve")
+                logger.debug(f"Gaussian fit failed for {lbl}, skipping fit curve")
         ax_hist.legend(fontsize=5, loc="upper right")
     ax_hist.set_xlabel("Difference (mm)", fontsize=7)
     ax_hist.set_ylabel("Density", fontsize=7)
@@ -409,61 +383,96 @@ def _generate_summary_page(beam_name, beam_data):
     ax_hist.tick_params(labelsize=6)
     ax_hist.grid(True, alpha=0.3)
 
-    # --- Bottom-right: Flagged layers table ---
-    ax_tbl = fig.add_subplot(gs[1, 1])
-    ax_tbl.axis("off")
-    flagged_rows = []
-    for i, layer in enumerate(layers_data):
-        if not pass_flags[i]:
-            r = layer.get("results", {})
-            flagged_rows.append(
-                [
-                    layer_labels[i],
-                    f"{r.get('mean_diff_x', 0):+.2f}",
-                    f"{r.get('mean_diff_y', 0):+.2f}",
-                    f"{r.get('std_diff_x', 0):.2f}",
-                    f"{r.get('std_diff_y', 0):.2f}",
-                    f"{r.get('max_abs_diff_x', 0):.2f}",
-                    f"{r.get('max_abs_diff_y', 0):.2f}",
-                ]
-            )
+    # --- Right (full height): Colored layer metrics table (top-aligned) ---
+    ax_layer_tbl = fig.add_subplot(gs[:, 1])
+    ax_layer_tbl.axis("off")
+    ax_layer_tbl.set_title("Layer Metrics (mm)", fontsize=9, fontweight="bold", pad=8)
 
-    if flagged_rows:
-        col_labels = ["Layer", "μ_x", "μ_y", "σ_x", "σ_y", "max_x", "max_y"]
-        # Limit displayed rows to avoid overflow
-        display_rows = flagged_rows[:15]
-        table = ax_tbl.table(
-            cellText=display_rows, colLabels=col_labels, loc="center", cellLoc="center"
+    cmap = plt.cm.RdYlGn_r
+    norm = Normalize(vmin=0, vmax=THRESHOLDS["max_abs_diff_mm"])
+
+    # Columns: colormap applies to |μ_x|, |μ_y|, σ_x, σ_y only (indices 1-4)
+    col_labels = ["Lyr", "|μ_x|", "|μ_y|", "σ_x", "σ_y", "max_x", "max_y"]
+    colored_col_indices = {1, 2, 3, 4}  # columns that get colormap coloring
+    table_rows = []
+    table_values = []  # raw float values for coloring
+    for i in range(num_layers):
+        abs_mx = abs(mean_x_all[i])
+        abs_my = abs(mean_y_all[i])
+        sx = std_x_all[i]
+        sy = std_y_all[i]
+        mx = max_x_all[i]
+        my = max_y_all[i]
+        table_rows.append([
+            layer_labels[i],
+            f"{abs_mx:.2f}", f"{abs_my:.2f}",
+            f"{sx:.2f}", f"{sy:.2f}",
+            f"{mx:.2f}", f"{my:.2f}",
+        ])
+        table_values.append([0, abs_mx, abs_my, sx, sy, mx, my])
+
+    if num_layers > 0:
+        table = ax_layer_tbl.table(
+            cellText=table_rows, colLabels=col_labels,
+            loc="upper center", cellLoc="center",
         )
         table.auto_set_font_size(False)
-        table.set_fontsize(6)
-        table.scale(1.0, 1.2)
-        # Color header
+        # Scale font based on layer count to fit page
+        if num_layers <= 20:
+            tbl_fontsize = 6
+        elif num_layers <= 40:
+            tbl_fontsize = 5
+        else:
+            tbl_fontsize = 4
+        table.set_fontsize(tbl_fontsize)
+        # Scale row height to fit available space
+        row_scale = min(1.8, max(0.6, 28.0 / (num_layers + 1)))
+        table.scale(1.0, row_scale)
+
+        # Style header row
         for j in range(len(col_labels)):
-            table[0, j].set_facecolor("#e74c3c")
+            table[0, j].set_facecolor("#34495e")
             table[0, j].set_text_props(color="white", fontweight="bold")
-        title_suffix = (
-            f" (showing 15 of {len(flagged_rows)})" if len(flagged_rows) > 15 else ""
-        )
-        ax_tbl.set_title(f"Flagged Layers{title_suffix}", fontsize=8, color="#e74c3c")
+
+        # Color data cells by value (colormap on mean/std only, not max)
+        for i in range(num_layers):
+            row_idx = i + 1  # +1 because row 0 is header
+            vals = table_values[i]
+            passed = pass_flags[i]
+            # Layer number column: green if pass, red if fail
+            table[row_idx, 0].set_facecolor("#d5f5e3" if passed else "#fadbd8")
+            table[row_idx, 0].set_text_props(fontweight="bold")
+            for j in range(1, len(col_labels)):
+                if j in colored_col_indices:
+                    rgba = cmap(norm(vals[j]))
+                    table[row_idx, j].set_facecolor(rgba)
+                    luminance = 0.299 * rgba[0] + 0.587 * rgba[1] + 0.114 * rgba[2]
+                    text_color = "white" if luminance < 0.5 else "black"
+                    table[row_idx, j].set_text_props(color=text_color)
+                # max columns (5, 6): no colormap, keep default white background
+
+        # Add colorbar legend below the table
+        # Position it relative to the right-panel axes
+        tbl_bbox = ax_layer_tbl.get_position()
+        cbar_ax = fig.add_axes([
+            tbl_bbox.x0 + 0.05, tbl_bbox.y0 - 0.005,
+            tbl_bbox.width - 0.10, 0.012,
+        ])
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+        sm.set_array([])
+        cbar = fig.colorbar(sm, cax=cbar_ax, orientation="horizontal")
+        cbar.ax.tick_params(labelsize=5)
+        cbar.set_label("Colormap: |mean|, std  (0 \u2013 3 mm)", fontsize=6)
     else:
-        ax_tbl.text(
-            0.5,
-            0.5,
-            "All layers within tolerance",
-            ha="center",
-            va="center",
-            fontsize=12,
-            color="#2ecc71",
-            fontweight="bold",
-            transform=ax_tbl.transAxes,
+        ax_layer_tbl.text(
+            0.5, 0.5, "No layer data",
+            ha="center", va="center", fontsize=10, transform=ax_layer_tbl.transAxes,
         )
-        ax_tbl.set_title("Flagged Layers", fontsize=8, color="#2ecc71")
 
     return fig
 
 
-def generate_report(report_data, output_dir, report_style="summary"):
+def generate_report(report_data, output_dir, report_style="summary", report_name=None):
     """
     Generates a PDF report with analysis plots organized by beam.
 
@@ -472,12 +481,20 @@ def generate_report(report_data, output_dir, report_style="summary"):
         output_dir: Directory to write the PDF into.
         report_style: 'summary' for one-page-per-beam dashboard,
                       'classic' for the original multi-page detailed report.
+        report_name: Optional PDF filename (without extension). Defaults to 'analysis_report'.
     """
     os.makedirs(output_dir, exist_ok=True)
-    pdf_path = os.path.join(output_dir, "analysis_report.pdf")
+    filename = f"{report_name}.pdf" if report_name else "analysis_report.pdf"
+    pdf_path = os.path.join(output_dir, filename)
+
+    # Extract patient info (stored with underscore-prefix keys to avoid beam name collision)
+    patient_id = report_data.get("_patient_id", "")
+    patient_name = report_data.get("_patient_name", "")
 
     with PdfPages(pdf_path) as pdf:
         for beam_name, beam_data in report_data.items():
+            if beam_name.startswith("_"):
+                continue  # skip metadata keys
             if not beam_data["layers"]:
                 logger.warning(
                     f"No layers with analysis results for beam '{beam_name}'. Skipping."
@@ -485,7 +502,9 @@ def generate_report(report_data, output_dir, report_style="summary"):
                 continue
 
             if report_style == "summary":
-                summary_fig = _generate_summary_page(beam_name, beam_data)
+                summary_fig = _generate_summary_page(
+                    beam_name, beam_data, patient_id=patient_id, patient_name=patient_name
+                )
                 pdf.savefig(summary_fig)
                 plt.close(summary_fig)
                 logger.info(f"Summary page for Beam '{beam_name}' added to PDF.")

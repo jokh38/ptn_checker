@@ -72,7 +72,14 @@ def parse_dcm_file(file_path: str) -> dict:
         raise FileNotFoundError(f"File not found: {file_path}")
     plan = pydicom.dcmread(file_path)
     machine_name = getattr(plan.IonBeamSequence[0], 'TreatmentMachineName', 'UNKNOWN')
-    plan_data = {'beams': {}, 'machine_name': machine_name}
+    patient_id = str(getattr(plan, 'PatientID', ''))
+    patient_name = str(getattr(plan, 'PatientName', ''))
+    plan_data = {
+        'beams': {},
+        'machine_name': machine_name,
+        'patient_id': patient_id,
+        'patient_name': patient_name,
+    }
     if not hasattr(plan, 'IonBeamSequence'):
         raise AttributeError("DICOM file does not contain IonBeamSequence")
 

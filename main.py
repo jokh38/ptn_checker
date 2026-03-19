@@ -1,4 +1,5 @@
 import argparse
+from datetime import date
 import glob
 import logging
 import sys
@@ -23,7 +24,7 @@ def find_ptn_files(directory):
                 ptn_files.append(os.path.join(root, file))
     return ptn_files
 
-def run_analysis(log_dir, dcm_file, output_dir, report_style='summary'):
+def run_analysis(log_dir, dcm_file, output_dir, report_style='summary', report_name=None):
     """
     Runs the analysis on the given DICOM and PTN files and generates plot images.
     """
@@ -73,7 +74,10 @@ def run_analysis(log_dir, dcm_file, output_dir, report_style='summary'):
 
     os.makedirs(output_dir, exist_ok=True)
 
-    report_data = {}
+    report_data = {
+        '_patient_id': plan_data_raw.get('patient_id', ''),
+        '_patient_name': plan_data_raw.get('patient_name', ''),
+    }
     ptn_file_iter = iter(ptn_files)
     debug_csv_saved = False  # [debug] Flag to save CSV for only the first layer
 
@@ -134,11 +138,11 @@ def run_analysis(log_dir, dcm_file, output_dir, report_style='summary'):
                 logger.warning(f"No more PTN files to process for layer {layer_index} of beam {beam_name}.")
                 break
 
-    if not any(data['layers'] for data in report_data.values()):
+    if not any(data['layers'] for key, data in report_data.items() if not key.startswith('_')):
         raise ValueError("No analysis results were generated. Check logs for warnings.")
 
     logger.info(f"Generating PDF report in directory: {output_dir}")
-    generate_report(report_data, output_dir, report_style=report_style)
+    generate_report(report_data, output_dir, report_style=report_style, report_name=report_name)
     logger.info("Done.")
 
 def main():
@@ -157,8 +161,13 @@ def main():
                         help="Report format: 'summary' (one page per beam) or 'classic' (multi-page detailed).")
     args = parser.parse_args()
 
+    # Derive report name from case ID (log directory basename) and today's date
+    case_id = os.path.basename(os.path.normpath(args.log_dir))
+    report_name = f"{case_id}_{date.today().isoformat()}"
+
     try:
-        run_analysis(args.log_dir, args.dcm_file, args.output, report_style=args.report_style)
+        run_analysis(args.log_dir, args.dcm_file, args.output,
+                     report_style=args.report_style, report_name=report_name)
     except (FileNotFoundError, ValueError) as e:
         logger.error(f"{e}")
         sys.exit(1)
