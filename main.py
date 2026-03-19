@@ -10,6 +10,8 @@ from src.dicom_parser import parse_dcm_file
 from src.calculator import calculate_differences_for_layer
 from src.report_generator import generate_report
 from src.config_loader import parse_scv_init
+from src.planrange_parser import parse_planrange_for_directory
+from src.mu_correction import apply_mu_correction
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +56,7 @@ def run_analysis(log_dir, dcm_file, output_dir):
         raise ValueError(f"Failed to parse config file {config_path}: {e}")
 
     ptn_files = sorted(find_ptn_files(log_dir))
+    planrange_lookup = parse_planrange_for_directory(log_dir)
     if not ptn_files:
         raise FileNotFoundError(f"No .ptn files found in directory {log_dir}")
 
@@ -67,6 +70,8 @@ def run_analysis(log_dir, dcm_file, output_dir):
             f"PTN file count ({len(ptn_files)}) does not match "
             f"expected layer count ({expected_layer_count})"
         )
+
+    os.makedirs(output_dir, exist_ok=True)
 
     report_data = {}
     ptn_file_iter = iter(ptn_files)
@@ -89,6 +94,13 @@ def run_analysis(log_dir, dcm_file, output_dir):
                 except (KeyError, ValueError, IOError) as e:
                     logger.error(f"Error parsing PTN file {ptn_file}: {e}")
                     continue
+
+                abs_ptn = os.path.abspath(ptn_file)
+                if abs_ptn in planrange_lookup:
+                    range_info = planrange_lookup[abs_ptn]
+                    apply_mu_correction(log_data_raw, range_info.energy, range_info.dose1_range_code)
+                elif planrange_lookup:
+                    logger.warning(f"No PlanRange entry for {ptn_file}, using uncorrected MU")
 
                 try:
                     # [debug] Save CSV for the first processed layer only
