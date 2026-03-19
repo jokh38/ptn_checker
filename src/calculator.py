@@ -124,5 +124,11 @@ def calculate_differences_for_layer(plan_layer, log_data, save_to_csv=False, csv
     results['mean_diff_y'] = np.mean(diff_y)
     results['std_diff_x'] = np.std(diff_x)
     results['std_diff_y'] = np.std(diff_y)
+    results['rmse_x'] = np.sqrt(np.mean(diff_x**2))
+    results['rmse_y'] = np.sqrt(np.mean(diff_y**2))
+    results['max_abs_diff_x'] = np.max(np.abs(diff_x))
+    results['max_abs_diff_y'] = np.max(np.abs(diff_y))
+    results['p95_abs_diff_x'] = np.percentile(np.abs(diff_x), 95)
+    results['p95_abs_diff_y'] = np.percentile(np.abs(diff_y), 95)
 
     return results
