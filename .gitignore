@@ -50,3 +50,6 @@ venv/
 *.pdf
 *.csv
 .claude/settings.local.json
+
+# IDE / tool metadata
+.omc/
