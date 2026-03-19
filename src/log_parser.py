@@ -106,9 +106,8 @@ def parse_ptn_file(file_path: str, config_params: dict) -> dict:
     corrected_x_size_col = raw_x_size_col * xpos_gain
     corrected_y_size_col = raw_y_size_col * ypos_gain
 
-    # 9. Calculate cumulative MU from dose1_au and dose2_au
-    total_dose = dose1_col + dose2_col
-    cumulative_mu = np.cumsum(total_dose)
+    # 9. Calculate cumulative MU from dose1_au only
+    cumulative_mu = np.cumsum(dose1_col)
 
     # 10. Conditionally filter data based on FILTERED_BEAM_ON_OFF setting
     if filtered_beam_enabled:
@@ -130,9 +129,8 @@ def parse_ptn_file(file_path: str, config_params: dict) -> dict:
         filtered_x_size_mm = corrected_x_size_col[beam_on_mask]
         filtered_y_size_mm = corrected_y_size_col[beam_on_mask]
 
-        # Recalculate cumulative MU for filtered data
-        filtered_total_dose = filtered_dose1 + filtered_dose2
-        filtered_cumulative_mu = np.cumsum(filtered_total_dose)
+        # Recalculate cumulative MU for filtered data (dose1 only)
+        filtered_cumulative_mu = np.cumsum(filtered_dose1)
     else:
         # Use all data without filtering
         filtered_time = time_column.flatten()
@@ -150,7 +148,33 @@ def parse_ptn_file(file_path: str, config_params: dict) -> dict:
         filtered_y_size_mm = corrected_y_size_col
         filtered_cumulative_mu = cumulative_mu
 
-    # 11. Return Data as dictionary of 1D arrays (conditionally filtered)
+    # 11. Filter out hardware default register values (position out of range)
+    # Hardware defaults have x_raw > 65000; use min of config value and 60000
+    # to ensure defaults are always caught regardless of config setting
+    x_threshold = min(float(config_params.get('XTHRESHOLD', 60000)), 60000)
+    y_threshold = min(float(config_params.get('YTHRESHOLD', 60000)), 60000)
+    ypos_offset_val = float(config_params['YPOSOFFSET'])
+
+    pos_valid_mask = (filtered_x_raw <= x_threshold) & (filtered_y_raw >= (ypos_offset_val - y_threshold))
+
+    filtered_time = filtered_time[pos_valid_mask]
+    filtered_x_raw = filtered_x_raw[pos_valid_mask]
+    filtered_y_raw = filtered_y_raw[pos_valid_mask]
+    filtered_x_size_raw = filtered_x_size_raw[pos_valid_mask]
+    filtered_y_size_raw = filtered_y_size_raw[pos_valid_mask]
+    filtered_dose1 = filtered_dose1[pos_valid_mask]
+    filtered_dose2 = filtered_dose2[pos_valid_mask]
+    filtered_layer_num = filtered_layer_num[pos_valid_mask]
+    filtered_beam_on_off = filtered_beam_on_off[pos_valid_mask]
+    filtered_x_mm = filtered_x_mm[pos_valid_mask]
+    filtered_y_mm = filtered_y_mm[pos_valid_mask]
+    filtered_x_size_mm = filtered_x_size_mm[pos_valid_mask]
+    filtered_y_size_mm = filtered_y_size_mm[pos_valid_mask]
+
+    # Recalculate cumulative MU after position filtering (dose1 only)
+    filtered_cumulative_mu = np.cumsum(filtered_dose1)
+
+    # 12. Return Data as dictionary of 1D arrays (conditionally filtered)
     return {
         "time_ms": filtered_time,
         "x_raw": filtered_x_raw,
