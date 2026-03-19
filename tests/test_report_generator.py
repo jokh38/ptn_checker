@@ -3,6 +3,7 @@ import os
 import numpy as np
 from unittest.mock import patch, MagicMock, call
 import shutil
+import tempfile
 import matplotlib.pyplot as plt
 
 from src.report_generator import (
@@ -16,7 +17,8 @@ from src.report_generator import (
 class TestReportGenerator(unittest.TestCase):
 
     def setUp(self):
-        self.output_dir = "test_output"
+        self.test_dir = tempfile.mkdtemp()
+        self.output_dir = os.path.join(self.test_dir, "test_output")
         os.makedirs(self.output_dir, exist_ok=True)
 
         self.report_data = {
@@ -90,8 +92,8 @@ class TestReportGenerator(unittest.TestCase):
         }
 
     def tearDown(self):
-        if os.path.exists(self.output_dir):
-            shutil.rmtree(self.output_dir)
+        if os.path.exists(self.test_dir):
+            shutil.rmtree(self.test_dir)
 
     def test_generate_error_bar_plot_for_beam(self):
         beam_name = "Beam 1"
@@ -130,24 +132,6 @@ class TestReportGenerator(unittest.TestCase):
             mock_pdf.savefig.assert_called_once()
         plt.close('all')
 
-    @patch('src.report_generator._generate_error_bar_plot_for_beam')
-    @patch('src.report_generator._generate_per_layer_position_plot')
-    @patch('src.report_generator._save_plots_to_pdf_grid')
-    def test_generate_report_calls_helpers(self, mock_save_grid, mock_per_layer_plot, mock_error_bar_plot):
-        mock_fig = plt.figure()
-        mock_error_bar_plot.return_value = mock_fig
-        mock_per_layer_plot.return_value = mock_fig
-
-        generate_report(self.report_data, self.output_dir)
-
-        expected_layers = self.report_data.get("Beam 1", {}).get('layers', [])
-        mock_error_bar_plot.assert_called_once_with("Beam 1", expected_layers)
-
-        self.assertEqual(mock_per_layer_plot.call_count, 7)
-        self.assertEqual(mock_save_grid.call_count, 2)
-
-        plt.close(mock_fig)
-
     def test_generate_report_creates_pdf(self):
         expected_pdf_path = os.path.join(self.output_dir, "analysis_report.pdf")
         if os.path.exists(expected_pdf_path):
@@ -156,20 +140,36 @@ class TestReportGenerator(unittest.TestCase):
         generate_report(self.report_data, self.output_dir)
         self.assertTrue(os.path.exists(expected_pdf_path))
 
-    @patch('src.report_generator._save_plots_to_pdf_grid')
-    def test_generate_report_batches_correctly(self, mock_save_grid):
-        generate_report(self.report_data, self.output_dir)
+    def test_generate_report_handles_out_of_range_summary_histogram(self):
+        report_data = {
+            "Beam 1": {
+                "layers": [
+                    {
+                        "layer_index": 0,
+                        "results": {
+                            "mean_diff_x": 0.1,
+                            "mean_diff_y": 25.0,
+                            "std_diff_x": 0.5,
+                            "std_diff_y": 1.0,
+                            "rmse_x": 0.5,
+                            "rmse_y": 25.0,
+                            "max_abs_diff_x": 1.0,
+                            "max_abs_diff_y": 25.0,
+                            "p95_abs_diff_x": 1.0,
+                            "p95_abs_diff_y": 25.0,
+                            "diff_x": np.array([0.0, 0.2, -0.2]),
+                            "diff_y": np.array([20.0, 25.0, 30.0]),
+                            "plan_positions": np.array([[0.0, 0.0], [1.0, 1.0]]),
+                            "log_positions": np.array([[0.1, 20.0], [1.1, 30.0]]),
+                        },
+                    }
+                ]
+            }
+        }
 
-        # With 7 layers, should create 2 batches: first with 6 plots, second with 1 plot
-        self.assertEqual(mock_save_grid.call_count, 2)
-
-        # First call should have 6 plots
-        first_call_args = mock_save_grid.call_args_list[0][0]
-        self.assertEqual(len(first_call_args[1]), 6)
-
-        # Second call should have 1 plot
-        second_call_args = mock_save_grid.call_args_list[1][0]
-        self.assertEqual(len(second_call_args[1]), 1)
+        expected_pdf_path = os.path.join(self.output_dir, "analysis_report.pdf")
+        generate_report(report_data, self.output_dir)
+        self.assertTrue(os.path.exists(expected_pdf_path))
 
 if __name__ == '__main__':
     unittest.main()

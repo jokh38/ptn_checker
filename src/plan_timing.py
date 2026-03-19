@@ -92,6 +92,7 @@ def build_layer_time_trajectory(
         "time_axis_s": time_axis,
         "x_cm": positions_cm[:, 0].copy(),
         "y_cm": positions_cm[:, 1].copy(),
+        "segment_times_s": np.concatenate(([0.0], segment_times)),
         "layer_doserate_mu_per_s": float(layer_doserate),
         "total_time_s": float(time_axis[-1]),
     }

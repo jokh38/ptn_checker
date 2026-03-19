@@ -30,46 +30,44 @@ def calculate_differences_for_layer(plan_layer, log_data, save_to_csv=False, csv
     """
     results = {}
 
-    for key in ('cumulative_mu', 'positions'):
+    for key in ('time_axis_s', 'trajectory_x_mm', 'trajectory_y_mm'):
         if key not in plan_layer:
             return {'error': f"Missing required plan_layer key: '{key}'"}
 
-    for key in ('mu', 'x', 'y'):
+    for key in ('time_ms', 'x', 'y'):
         if key not in log_data:
             return {'error': f"Missing required log_data key: '{key}'"}
 
-    plan_mu = plan_layer['cumulative_mu']
-    plan_x = plan_layer['positions'][:, 0]
-    plan_y = plan_layer['positions'][:, 1]
+    plan_time_s = np.asarray(plan_layer['time_axis_s'], dtype=float)
+    plan_x = np.asarray(plan_layer['trajectory_x_mm'], dtype=float)
+    plan_y = np.asarray(plan_layer['trajectory_y_mm'], dtype=float)
 
-    log_mu = log_data['mu']
-    log_x = log_data['x']
-    log_y = log_data['y']
+    log_time_s = (np.asarray(log_data['time_ms'], dtype=float) -
+                  float(log_data['time_ms'][0])) / 1000.0
+    log_x = np.asarray(log_data['x'], dtype=float)
+    log_y = np.asarray(log_data['y'], dtype=float)
 
-    if len(plan_mu) == 0 or len(log_mu) == 0:
+    if len(plan_time_s) == 0 or len(log_time_s) == 0:
         return {'error': 'Empty data arrays'}
 
-    if plan_mu[-1] > 0:
-        plan_mu_norm = plan_mu / plan_mu[-1]
-    else:
-        plan_mu_norm = plan_mu
-
-    if log_mu[-1] > 0:
-        log_mu_norm = log_mu / log_mu[-1]
-    else:
-        log_mu_norm = log_mu
-
-    interp_plan_x = np.interp(log_mu_norm, plan_mu_norm, plan_x)
-    interp_plan_y = np.interp(log_mu_norm, plan_mu_norm, plan_y)
+    interp_plan_x = np.interp(log_time_s, plan_time_s, plan_x)
+    interp_plan_y = np.interp(log_time_s, plan_time_s, plan_y)
 
     diff_x = interp_plan_x - log_x
     diff_y = interp_plan_y - log_y
+
+    plan_end = float(plan_time_s[-1]) if len(plan_time_s) else 0.0
+    log_end = float(log_time_s[-1]) if len(log_time_s) else 0.0
+    max_end = max(plan_end, log_end)
+    overlap = min(plan_end, log_end) / max_end if max_end > 0 else 1.0
+    if overlap < 0.95:
+        logger.warning(f"Plan/log time overlap: {overlap:.1%}")
 
     # Save to CSV if requested
     if save_to_csv:
         logger.info(f"Saving data to {csv_filename}")
         data_to_save = np.column_stack((
-            log_mu_norm,
+            log_time_s,
             interp_plan_x,
             interp_plan_y,
             log_x,
@@ -79,7 +77,7 @@ def calculate_differences_for_layer(plan_layer, log_data, save_to_csv=False, csv
             log_data['layer_num'],
             log_data['beam_on_off']
         ))
-        header = "log_mu_norm,interp_plan_x,interp_plan_y,log_x,log_y,x_raw,y_raw,layer_num,beam_on_off"
+        header = "log_time_s,interp_plan_x,interp_plan_y,log_x,log_y,x_raw,y_raw,layer_num,beam_on_off"
         np.savetxt(csv_filename, data_to_save, delimiter=",", header=header, comments="")
 
     results['diff_x'] = diff_x
@@ -130,5 +128,6 @@ def calculate_differences_for_layer(plan_layer, log_data, save_to_csv=False, csv
     results['max_abs_diff_y'] = np.max(np.abs(diff_y))
     results['p95_abs_diff_x'] = np.percentile(np.abs(diff_x), 95)
     results['p95_abs_diff_y'] = np.percentile(np.abs(diff_y), 95)
+    results['time_overlap_fraction'] = overlap
 
     return results

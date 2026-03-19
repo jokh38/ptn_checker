@@ -359,14 +359,37 @@ def _generate_summary_page(beam_name, beam_data, patient_id="", patient_name="")
         pooled_x = np.concatenate(all_diff_x)
         pooled_y = np.concatenate(all_diff_y)
         bins = np.arange(-5, 5.01, 0.05)
-        ax_hist.hist(pooled_x, bins=bins, density=True, alpha=0.5, color="#3498db", label="X")
-        ax_hist.hist(pooled_y, bins=bins, density=True, alpha=0.5, color="#e67e22", label="Y")
+        hist_min = bins[0]
+        hist_max = bins[-1]
+        in_range_series = [
+            ("X", pooled_x[(pooled_x >= hist_min) & (pooled_x <= hist_max)], "#3498db"),
+            ("Y", pooled_y[(pooled_y >= hist_min) & (pooled_y <= hist_max)], "#e67e22"),
+        ]
+        for axis_label, in_range_values, color in in_range_series:
+            if in_range_values.size == 0:
+                logger.debug(
+                    f"Skipping summary histogram for {axis_label}: no values within [{hist_min}, {hist_max}] mm"
+                )
+                continue
+            ax_hist.hist(
+                in_range_values,
+                bins=bins,
+                density=True,
+                alpha=0.5,
+                color=color,
+                label=axis_label,
+            )
         bin_centers = (bins[:-1] + bins[1:]) / 2
         for pooled, color, lbl in [
             (pooled_x, "#3498db", "X fit"),
             (pooled_y, "#e67e22", "Y fit"),
         ]:
-            hist_vals, _ = np.histogram(pooled, bins=bins, density=True)
+            pooled_in_range = pooled[(pooled >= hist_min) & (pooled <= hist_max)]
+            if pooled_in_range.size == 0:
+                continue
+            hist_vals, _ = np.histogram(pooled_in_range, bins=bins, density=True)
+            if not np.isfinite(hist_vals).all() or np.sum(hist_vals) <= 0:
+                continue
             try:
                 popt, _ = curve_fit(_gaussian, bin_centers, hist_vals, p0=[1, 0, 1])
                 ax_hist.plot(
@@ -451,12 +474,13 @@ def _generate_summary_page(beam_name, beam_data, patient_id="", patient_name="")
                     table[row_idx, j].set_text_props(color=text_color)
                 # max columns (5, 6): no colormap, keep default white background
 
-        # Add colorbar legend below the table
-        # Position it relative to the right-panel axes
-        tbl_bbox = ax_layer_tbl.get_position()
+        # Add colorbar legend just beneath the layer metrics table
+        renderer = fig.canvas.get_renderer()
+        tbl_window_bbox = table.get_window_extent(renderer)
+        tbl_fig_bbox = tbl_window_bbox.transformed(fig.transFigure.inverted())
         cbar_ax = fig.add_axes([
-            tbl_bbox.x0 + 0.05, tbl_bbox.y0 - 0.005,
-            tbl_bbox.width - 0.10, 0.012,
+            tbl_fig_bbox.x0 + 0.02, tbl_fig_bbox.y0 - 0.018,
+            tbl_fig_bbox.width - 0.04, 0.012,
         ])
         sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
         sm.set_array([])

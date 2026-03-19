@@ -1,12 +1,13 @@
 # PTN Checker - Radiotherapy Plan and Log File Analyzer
 
-A Python-based tool for analyzing and comparing radiotherapy treatment plans (DICOM RTPLAN files) against actual delivery log files (PTN format). The tool generates comprehensive PDF reports with statistical analysis and visualization of position differences.
+A Python-based tool for analyzing and comparing radiotherapy treatment plans (DICOM RTPLAN files) against actual delivery log files (PTN format). The default comparison aligns reconstructed plan trajectories to rebased log time and generates PDF reports with statistical analysis and visualization of position differences.
 
 ## Features
 
-- **DICOM RTPLAN Parsing**: Extracts planned spot positions and Monitor Units (MU) from DICOM files
+- **DICOM RTPLAN Parsing**: Extracts planned spot positions, MU, energy, and reconstructed time-domain trajectories from DICOM files
 - **PTN Log File Parsing**: Reads binary treatment delivery log files with calibration parameters
-- **Position Difference Analysis**: Calculates differences between planned and actual beam positions
+- **Time-Based Alignment**: Reconstructs plan delivery time from spot motion and compares against rebased PTN log time
+- **Position Difference Analysis**: Calculates differences between planned and actual beam positions after time-domain sampling
 - **Statistical Analysis**: Performs Gaussian curve fitting on position difference histograms
 - **PDF Report Generation**: Creates multi-page reports with:
   - Error bar plots showing position differences per layer
@@ -144,7 +145,7 @@ ptn_checker/
 2. **Load Configuration**: Read machine-specific calibration parameters
 3. **Find PTN Files**: Recursively search for `.ptn` log files in the specified directory
 4. **Parse PTN Files**: For each layer, parse the corresponding PTN file with calibration
-5. **Calculate Differences**: Interpolate planned positions to match log timing and calculate position differences
+5. **Calculate Differences**: Sample the reconstructed plan trajectory on rebased log time and calculate position differences
 6. **Statistical Analysis**: Fit Gaussian curves to difference histograms
 7. **Generate Report**: Create PDF with error bar plots and 2D position comparisons
 
@@ -153,21 +154,21 @@ ptn_checker/
 Run the test suite:
 
 ```bash
-pytest tests/
+python -m pytest tests/
 ```
 
 Run specific test files:
 
 ```bash
-pytest tests/test_main.py
-pytest tests/test_log_parser.py
-pytest tests/test_dicom_parser.py
+python -m pytest tests/test_main.py
+python -m pytest tests/test_log_parser.py
+python -m pytest tests/test_dicom_parser.py
 ```
 
 Run with verbose output:
 
 ```bash
-pytest -v tests/
+python -m pytest -v tests/
 ```
 
 ### Test Coverage
@@ -191,7 +192,7 @@ Binary format containing treatment delivery logs:
 Standard DICOM radiotherapy plan files containing:
 - Ion beam sequence with control points
 - Spot positions and weights for each energy layer
-- Cumulative meterset weights for MU calculation
+- Beam energy and cumulative meterset weights for timing reconstruction
 
 ## Troubleshooting
 
@@ -221,7 +222,7 @@ This project is part of the MOQUI_SMC system. Please refer to the project reposi
 
 When contributing:
 1. Add tests for new functionality
-2. Ensure all tests pass (`pytest tests/`)
+2. Ensure all tests pass (`python -m pytest tests/`)
 3. Follow the existing code style and documentation patterns
 4. Update this README if adding new features
 

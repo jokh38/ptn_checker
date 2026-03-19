@@ -2,6 +2,8 @@ import pydicom
 import numpy as np
 import os
 
+from src.plan_timing import build_layer_time_trajectory
+
 
 def F_SHI_spotW(spot_bytes):
     """Decode a SHI proprietary 4-byte spot weight from binary data.
@@ -123,9 +125,24 @@ def parse_dcm_file(file_path: str) -> dict:
                        for w in weights]
             else:
                 mus = [0.0] * len(weights)
+            positions_array = np.array(positions)
+            mus_array = np.array(mus)
+            energy = float(getattr(cp_start, 'NominalBeamEnergy', 0.0))
+            trajectory = build_layer_time_trajectory(
+                positions_cm=positions_array * 0.1,
+                mu=mus_array,
+                energy=energy,
+            )
             plan_data['beams'][beam_number]['layers'][layer_index] = {
-                'positions': np.array(positions),
-                'mu': np.array(mus),
-                'cumulative_mu': np.cumsum(mus)
+                'positions': positions_array,
+                'mu': mus_array,
+                'cumulative_mu': np.cumsum(mus_array),
+                'energy': energy,
+                'time_axis_s': trajectory['time_axis_s'],
+                'trajectory_x_mm': trajectory['x_cm'] * 10.0,
+                'trajectory_y_mm': trajectory['y_cm'] * 10.0,
+                'segment_times_s': trajectory['segment_times_s'],
+                'layer_doserate_mu_per_s': trajectory['layer_doserate_mu_per_s'],
+                'total_time_s': trajectory['total_time_s'],
             }
     return plan_data

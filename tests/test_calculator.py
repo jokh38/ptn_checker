@@ -1,90 +1,81 @@
 import unittest
-import os
 import numpy as np
-import tempfile
-import shutil
-
-from tests.conftest import create_dummy_dcm_file
-from src.log_parser import parse_ptn_file
-from src.dicom_parser import parse_dcm_file
 from src.calculator import calculate_differences_for_layer
 
 
 class TestCalculator(unittest.TestCase):
-
-    def setUp(self):
-        self.test_dir = tempfile.mkdtemp()
-
-        # Create dummy PTN file with proper beam_on_off values
-        self.ptn_file_path = os.path.join(self.test_dir, "test.ptn")
-        # 10 spots * 8 shorts/spot = 80 shorts
-        # Data format: x_raw, y_raw, x_size_raw, y_size_raw, dose1, dose2, layer, beam_on_off
-        dummy_ptn_data = np.arange(80, dtype='>u2')
-        # Set beam_on_off values to 1 (positions 7, 15, 23, 31, 39, 47, 55, 63, 71, 79)
-        for i in range(10):
-            dummy_ptn_data[i * 8 + 7] = 50000  # beam_on_off > 49152 threshold for Beam On
-        dummy_ptn_data.tofile(self.ptn_file_path)
-
-        # Create dummy DICOM file
-        self.dcm_file_path = os.path.join(self.test_dir, "test.dcm")
-        create_dummy_dcm_file(self.dcm_file_path)
-
-        self.config = {
-            'XPOSGAIN': 1.0, 'YPOSGAIN': 1.0,
-            'XPOSOFFSET': 0.0, 'YPOSOFFSET': 0.0,
-            'TIMEGAIN': 0.001
+    def test_calculator_uses_time_axis_for_plan_sampling(self):
+        plan_layer = {
+            "time_axis_s": np.array([0.0, 1.0, 2.0]),
+            "trajectory_x_mm": np.array([0.0, 0.0, 10.0]),
+            "trajectory_y_mm": np.array([0.0, 0.0, 0.0]),
         }
-        self.log_data = parse_ptn_file(self.ptn_file_path, self.config)
-        plan_data = parse_dcm_file(self.dcm_file_path)
-        self.plan_layer = plan_data['beams'][1]['layers'][0]
+        log_data = {
+            "time_ms": np.array([0.0, 500.0, 1000.0, 1500.0, 2000.0]),
+            "x": np.array([0.0, 0.0, 0.0, 5.0, 10.0]),
+            "y": np.array([0.0, 0.0, 0.0, 0.0, 0.0]),
+        }
+        results = calculate_differences_for_layer(plan_layer, log_data)
+        self.assertTrue(np.allclose(results["diff_x"], 0.0))
 
+    def test_calculator_errors_when_time_axis_is_missing(self):
+        results = calculate_differences_for_layer(
+            {"positions": np.zeros((2, 2))},
+            {"x": np.array([])},
+        )
+        self.assertIn("error", results)
 
-    def tearDown(self):
-        shutil.rmtree(self.test_dir)
+    def test_calculator_result_keys(self):
+        plan_layer = {
+            "time_axis_s": np.array([0.0, 1.0]),
+            "trajectory_x_mm": np.array([0.0, 5.0]),
+            "trajectory_y_mm": np.array([0.0, 5.0]),
+        }
+        log_data = {
+            "time_ms": np.array([0.0, 500.0, 1000.0]),
+            "x": np.array([0.0, 2.5, 5.0]),
+            "y": np.array([0.0, 2.5, 5.0]),
+        }
+        results = calculate_differences_for_layer(plan_layer, log_data)
+        for key in (
+            'diff_x', 'diff_y', 'mean_diff_x', 'mean_diff_y',
+            'std_diff_x', 'std_diff_y', 'rmse_x', 'rmse_y',
+            'max_abs_diff_x', 'max_abs_diff_y', 'p95_abs_diff_x',
+            'p95_abs_diff_y', 'plan_positions', 'log_positions',
+            'hist_fit_x', 'hist_fit_y',
+        ):
+            self.assertIn(key, results, f"Missing key: {key}")
 
-    def test_calculate_differences_smoke(self):
-        """
-        A simple smoke test to see if the function runs without crashing.
-        """
-        self.plan_layer['positions'] = np.zeros((10, 2))
-        self.plan_layer['mu'] = np.zeros(10)
+    def test_calculator_reports_time_overlap_fraction(self):
+        plan_layer = {
+            "time_axis_s": np.array([0.0, 1.0]),
+            "trajectory_x_mm": np.array([0.0, 10.0]),
+            "trajectory_y_mm": np.array([0.0, 0.0]),
+        }
+        log_data = {
+            "time_ms": np.array([0.0, 500.0, 1000.0]),
+            "x": np.array([0.0, 5.0, 10.0]),
+            "y": np.array([0.0, 0.0, 0.0]),
+        }
+        results = calculate_differences_for_layer(plan_layer, log_data)
+        self.assertTrue(np.isclose(results["time_overlap_fraction"], 1.0))
 
-        results = calculate_differences_for_layer(self.plan_layer, self.log_data)
-        self.assertIsInstance(results, dict)
-
-    def test_calculate_differences_keys(self):
-        """
-        Test that the results dictionary contains the expected keys.
-        """
-        self.plan_layer['positions'] = np.zeros((10, 2))
-        self.plan_layer['mu'] = np.zeros(10)
-        results = calculate_differences_for_layer(self.plan_layer, self.log_data)
-        self.assertIn('mean_diff_x', results)
-        self.assertIn('mean_diff_y', results)
-        self.assertIn('std_diff_x', results)
-        self.assertIn('std_diff_y', results)
-
-    def test_calculate_differences_data_shape(self):
-        """
-        Test that the difference arrays have the correct shape.
-        """
-        self.plan_layer['positions'] = np.zeros((10, 2))
-        self.plan_layer['mu'] = np.zeros(10)
-        results = calculate_differences_for_layer(self.plan_layer, self.log_data)
-        self.assertEqual(results['log_positions'].shape[0], self.log_data['x_mm'].shape[0])
-        self.assertIsInstance(results['mean_diff_x'], (float, np.floating))
-
-    def test_result_structure(self):
-        """
-        Test that the results have the expected structure.
-        """
-        self.plan_layer['positions'] = np.zeros((10, 2))
-        self.plan_layer['mu'] = np.zeros(10)
-        results = calculate_differences_for_layer(self.plan_layer, self.log_data)
-        self.assertIn('plan_positions', results)
-        self.assertIn('log_positions', results)
-        self.assertIsInstance(results['std_diff_x'], (float, np.floating))
-        self.assertIsInstance(results['std_diff_y'], (float, np.floating))
+    def test_calculator_handles_out_of_histogram_range_differences(self):
+        plan_layer = {
+            "time_axis_s": np.array([0.0, 1.0]),
+            "trajectory_x_mm": np.array([100.0, 110.0]),
+            "trajectory_y_mm": np.array([100.0, 110.0]),
+        }
+        log_data = {
+            "time_ms": np.array([0.0, 1000.0]),
+            "x": np.array([0.0, 0.0]),
+            "y": np.array([0.0, 0.0]),
+        }
+        results = calculate_differences_for_layer(plan_layer, log_data)
+        hist_fit_x = results.get("hist_fit_x", {})
+        hist_fit_y = results.get("hist_fit_y", {})
+        self.assertTrue(np.isfinite(hist_fit_x.get("mean", np.nan)))
+        self.assertTrue(np.isfinite(hist_fit_y.get("mean", np.nan)))
 
 if __name__ == '__main__':
     unittest.main()

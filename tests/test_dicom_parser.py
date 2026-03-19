@@ -51,13 +51,25 @@ class TestDicomParser(unittest.TestCase):
         self.assertIn("positions", layer_data)
         self.assertIn("mu", layer_data)
         self.assertIn("cumulative_mu", layer_data)
+        self.assertIn("energy", layer_data)
+        self.assertIn("time_axis_s", layer_data)
+        self.assertIn("trajectory_x_mm", layer_data)
+        self.assertIn("trajectory_y_mm", layer_data)
+        self.assertIn("layer_doserate_mu_per_s", layer_data)
+        self.assertIn("total_time_s", layer_data)
 
         self.assertIsInstance(layer_data["positions"], np.ndarray)
         self.assertIsInstance(layer_data["mu"], np.ndarray)
         self.assertIsInstance(layer_data["cumulative_mu"], np.ndarray)
+        self.assertIsInstance(layer_data["time_axis_s"], np.ndarray)
+        self.assertIsInstance(layer_data["trajectory_x_mm"], np.ndarray)
+        self.assertIsInstance(layer_data["trajectory_y_mm"], np.ndarray)
 
         self.assertEqual(layer_data["positions"].shape[1], 2)
         self.assertEqual(layer_data["positions"].shape[0], layer_data["mu"].shape[0])
+        self.assertGreater(layer_data["total_time_s"], 0.0)
+        self.assertEqual(len(layer_data["time_axis_s"]), len(layer_data["trajectory_x_mm"]))
+        self.assertEqual(len(layer_data["time_axis_s"]), len(layer_data["trajectory_y_mm"]))
 
     def test_missing_ion_beam_sequence(self):
         """Test that parse_dcm_file raises AttributeError when IonBeamSequence is missing."""
