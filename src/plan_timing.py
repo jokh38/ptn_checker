@@ -65,7 +65,15 @@ def build_layer_time_trajectory(
             segment_mu[distance_mask] / segment_distances[distance_mask]
         )
         dose_rates = MAX_SPEED * mu_per_distance
-        min_dose_rate = float(np.min(dose_rates))
+        # Exclude transit segments whose geometry-implied doserate falls below
+        # MIN_DOSERATE.  These are line-change transits where the beam travels
+        # a large distance with near-zero MU — the machine scans them at
+        # MAX_SPEED regardless and they should not constrain the layer doserate.
+        constraining = dose_rates >= MIN_DOSERATE
+        if np.any(constraining):
+            min_dose_rate = float(np.min(dose_rates[constraining]))
+        else:
+            min_dose_rate = MIN_DOSERATE
     else:
         min_dose_rate = MIN_DOSERATE
 
@@ -82,7 +90,12 @@ def build_layer_time_trajectory(
         if segment_mu[i] < MU_EPSILON:
             segment_times[i] = segment_distances[i] / MAX_SPEED
         else:
-            segment_times[i] = segment_mu[i] / layer_doserate
+            dose_time = segment_mu[i] / layer_doserate
+            if segment_distances[i] > 0:
+                transit_time = segment_distances[i] / MAX_SPEED
+                segment_times[i] = max(dose_time, transit_time)
+            else:
+                segment_times[i] = dose_time
 
     time_axis = np.zeros(positions_cm.shape[0], dtype=float)
     if segment_times.size > 0:
