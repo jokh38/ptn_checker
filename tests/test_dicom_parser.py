@@ -8,7 +8,12 @@ from pydicom.dataset import Dataset, FileMetaDataset
 from pydicom.uid import ImplicitVRLittleEndian
 
 from tests.conftest import create_dummy_dcm_file
-from src.dicom_parser import parse_dcm_file, F_SHI_spotW, F_SHI_spotP
+from src.dicom_parser import (
+    parse_dcm_file,
+    F_SHI_spotW,
+    F_SHI_spotP,
+    _classify_transit_min_dose_spots,
+)
 
 
 class TestDicomParser(unittest.TestCase):
@@ -119,6 +124,47 @@ class TestDicomParser(unittest.TestCase):
         # byte1 (x2) >= 128 means negative sign
         result = F_SHI_spotP(b'\x80\x80')
         self.assertLess(result, 0)
+
+    def test_classify_transit_min_dose_spots_marks_high_speed_low_mu_runs(self):
+        positions = np.array(
+            [
+                [0.0, 0.0],
+                [20.0, 0.0],
+                [40.0, 0.0],
+                [40.1, 0.0],
+            ]
+        )
+        mu = np.array([0.01, 0.000452, 0.000452, 0.05])
+        segment_times_s = np.array([0.0, 0.001, 0.001, 0.01])
+
+        transit, scan_speed = _classify_transit_min_dose_spots(
+            positions_mm=positions,
+            mu=mu,
+            segment_times_s=segment_times_s,
+        )
+
+        np.testing.assert_array_equal(transit, np.array([False, True, True, False]))
+        self.assertGreaterEqual(scan_speed[1], 10000.0)
+        self.assertGreaterEqual(scan_speed[2], 10000.0)
+
+    def test_classify_transit_min_dose_spots_keeps_isolated_low_mu_treatment(self):
+        positions = np.array(
+            [
+                [0.0, 0.0],
+                [0.2, 0.0],
+                [0.4, 0.0],
+            ]
+        )
+        mu = np.array([0.02, 0.0008, 0.03])
+        segment_times_s = np.array([0.0, 0.01, 0.01])
+
+        transit, _ = _classify_transit_min_dose_spots(
+            positions_mm=positions,
+            mu=mu,
+            segment_times_s=segment_times_s,
+        )
+
+        np.testing.assert_array_equal(transit, np.array([False, False, False]))
 
 
 if __name__ == '__main__':

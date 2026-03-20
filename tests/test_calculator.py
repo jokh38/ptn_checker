@@ -246,5 +246,73 @@ class TestCalculator(unittest.TestCase):
         np.testing.assert_allclose(csv_data["interp_plan_mu"], [1.0, 3.0, 6.0])
         np.testing.assert_allclose(csv_data["log_mu"], [0.5, 2.5, 5.0])
 
+    def test_calculator_excludes_boundary_carryover_after_transit_from_filtered_stats(self):
+        plan_layer = {
+            "time_axis_s": np.array([0.0, 1.0, 2.0, 3.0]),
+            "trajectory_x_mm": np.array([0.0, 20.0, 20.0, 30.0]),
+            "trajectory_y_mm": np.array([0.0, 0.0, 0.0, 0.0]),
+            "cumulative_mu": np.array([0.01, 0.010452, 0.044452, 0.094452]),
+            "mu": np.array([0.01, 0.000452, 0.034, 0.05]),
+            "spot_is_transit_min_dose": np.array([False, True, False, False]),
+            "spot_scan_speed_mm_s": np.array([0.0, 20000.0, 200.0, 1000.0]),
+        }
+        log_data = {
+            "time_ms": np.array([0.0, 200.0, 800.0, 1000.0, 1000.4, 1001.0, 1002.0, 2000.0, 3000.0]),
+            "x": np.array([0.0, 4.0, 16.0, 35.0, 30.0, 24.0, 20.0, 20.0, 30.0]),
+            "y": np.zeros(9),
+        }
+        config = {
+            "SETTLING_THRESHOLD_MM": 100.0,
+            "SETTLING_CONSECUTIVE_SAMPLES": 1,
+            "ZERO_DOSE_FILTER_ENABLED": True,
+            "ZERO_DOSE_BOUNDARY_HOLDOFF_S": 0.001,
+        }
+
+        results = calculate_differences_for_layer(plan_layer, log_data, config=config)
+
+        np.testing.assert_array_equal(
+            results["assigned_spot_index"],
+            np.array([0, 1, 1, 1, 2, 2, 2, 2, 3]),
+        )
+        np.testing.assert_array_equal(
+            results["sample_is_transit_min_dose"],
+            np.array([False, True, True, True, False, False, False, False, False]),
+        )
+        np.testing.assert_array_equal(
+            results["sample_is_boundary_carryover"],
+            np.array([False, False, False, False, True, True, False, False, False]),
+        )
+        np.testing.assert_array_equal(
+            results["sample_is_included_filtered_stats"],
+            np.array([True, False, False, False, False, False, True, True, True]),
+        )
+        self.assertAlmostEqual(results["max_abs_diff_x"], 15.0)
+        self.assertAlmostEqual(results["filtered_max_abs_diff_x"], 0.0)
+
+    def test_calculator_falls_back_to_raw_when_filtered_mask_is_empty(self):
+        plan_layer = {
+            "time_axis_s": np.array([0.0, 1.0]),
+            "trajectory_x_mm": np.array([0.0, 10.0]),
+            "trajectory_y_mm": np.array([0.0, 0.0]),
+            "mu": np.array([0.0, 0.000452]),
+            "spot_is_transit_min_dose": np.array([True, True]),
+            "spot_scan_speed_mm_s": np.array([20000.0, 20000.0]),
+        }
+        log_data = {
+            "time_ms": np.array([0.0, 1000.0]),
+            "x": np.array([0.0, 8.0]),
+            "y": np.array([0.0, 0.0]),
+        }
+        config = {
+            "SETTLING_THRESHOLD_MM": 100.0,
+            "SETTLING_CONSECUTIVE_SAMPLES": 1,
+            "ZERO_DOSE_FILTER_ENABLED": True,
+        }
+
+        results = calculate_differences_for_layer(plan_layer, log_data, config=config)
+
+        self.assertTrue(results["filtered_stats_fallback_to_raw"])
+        self.assertAlmostEqual(results["filtered_max_abs_diff_x"], results["max_abs_diff_x"])
+
 if __name__ == '__main__':
     unittest.main()

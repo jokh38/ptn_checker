@@ -69,6 +69,71 @@ The existing `tests/conftest.py` `create_dummy_dcm_file` helper does not set `No
 - Set `NominalBeamEnergy` on dummy control points (e.g., 150.0 MeV)
 - Ensure the dummy energy has a matching entry in `LS_doserate.csv`, or mock the doserate lookup in tests
 
+#### D6: Post-implementation MU normalization study
+
+Follow-up analysis on March 20, 2026 checked whether the corrected PTN cumulative MU could be compared directly against RTPLAN MU on a per-layer basis. The tested normalization value was:
+
+```python
+alpha_layer = plan_layer_total_mu / corrected_log_layer_total_mu
+```
+
+where `plan_layer_total_mu = sum(plan_layer["mu"])` and `corrected_log_layer_total_mu = log_data["mu"][-1]` after `apply_mu_correction()`.
+
+**Observation:** raw corrected PTN MU and RTPLAN MU are not numerically interchangeable. They differ by a large machine-stable scale factor, so direct MU-axis interpolation without per-layer normalization is not defensible.
+
+**Component-validated data points**
+
+- G2 case root: `/home/jokh38/MOQUI_SMC/data/SHI_log/55061194`
+- G1 case root: `/home/jokh38/MOQUI_SMC/data/SHI_log/55758663`
+- Verification scripts used `parse_dcm_file`, `parse_ptn_file`, `parse_planrange_for_directory`, and `apply_mu_correction`
+
+**Machine-level summary**
+
+| Machine | Layers sampled | `alpha = plan/log` mean | std | min | max |
+|---------|----------------|-------------------------|-----|-----|-----|
+| G2 | 108 | `1.629145e-07` | `2.872131e-08` | `1.103437e-07` | `2.153610e-07` |
+| G1 | 108 | `1.507917e-07` | `2.051463e-08` | `1.157870e-07` | `2.207164e-07` |
+
+Equivalent inverse scale:
+
+```python
+beta_layer = corrected_log_layer_total_mu / plan_layer_total_mu
+```
+
+| Machine | `beta = log/plan` mean | std |
+|---------|------------------------|-----|
+| G2 | `6.337507e+06` | `1.148393e+06` |
+| G1 | `6.752353e+06` | `8.982996e+05` |
+
+**Beam-level summary**
+
+| Machine | Beam | Layers sampled | `alpha` mean | `alpha` std |
+|---------|------|----------------|--------------|-------------|
+| G2 | `1G180:TX` | 34 | `1.670465e-07` | `2.685477e-08` |
+| G2 | `2G225:TX` | 32 | `1.690517e-07` | `2.556830e-08` |
+| G2 | `3G140:TX` | 42 | `1.548936e-07` | `3.053615e-08` |
+| G1 | `1G000:TX` | 35 | `1.564808e-07` | `1.864278e-08` |
+| G1 | `2G010:TX` | 34 | `1.501882e-07` | `1.716118e-08` |
+| G1 | `3G310:TX` | 39 | `1.462123e-07` | `2.337607e-08` |
+
+**Mapping note**
+
+- G2 delivery directories map directly by `PlanRange.txt` `FLD_NO` to RTPLAN treatment beam numbers `2`, `3`, and `4`.
+- G1 delivery directories use `FLD_NO` values `5`, `6`, and `7`, while the RTPLAN treatment beams are numbered `2`, `3`, and `4`.
+- For G1, the mapping was resolved by ordered delivered field to ordered non-setup beam, cross-checked by identical layer counts:
+  - field `5` -> beam `2` (`1G000:TX`, 35 layers)
+  - field `6` -> beam `3` (`2G010:TX`, 34 layers)
+  - field `7` -> beam `4` (`3G310:TX`, 39 layers)
+
+**Resolution:** keep time-based alignment as the production comparison basis. If a future MU-basis analysis is added, it must use a normalized per-layer MU coordinate such as:
+
+```python
+u_plan = plan_layer["cumulative_mu"] / plan_layer["cumulative_mu"][-1]
+u_log = log_data["mu"] / log_data["mu"][-1]
+```
+
+and it should treat each planned spot as a MU interval, not as a single MU endpoint. This preserves comparability despite the machine-dependent scale mismatch between corrected PTN MU and RTPLAN MU.
+
 ---
 
 ### Task 1: Add focused timing tests for plan-side reconstruction

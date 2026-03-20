@@ -6,6 +6,18 @@ logger = logging.getLogger(__name__)
 
 VALID_REPORT_STYLES = {"summary", "classic"}
 VALID_TOGGLE_VALUES = {"on", "off"}
+VALID_ZERO_DOSE_REPORT_MODES = {"filtered", "raw", "both"}
+
+DEFAULT_ZERO_DOSE_FILTER = {
+    "enabled": True,
+    "max_mu": 0.001,
+    "machine_min_mu": 0.000452,
+    "min_scan_speed_mm_s": 10000.0,
+    "min_run_length": 2,
+    "keep_first_zero_mu_spot": True,
+    "boundary_holdoff_s": 0.0006,
+    "report_mode": "filtered",
+}
 
 
 def _validate_settling_config(config: dict) -> None:
@@ -68,6 +80,45 @@ def _validate_app_config(config: dict) -> None:
     if save_debug_csv not in VALID_TOGGLE_VALUES:
         raise ValueError(f"SAVE_DEBUG_CSV must be one of {sorted(VALID_TOGGLE_VALUES)}")
 
+    report_mode = config.get("ZERO_DOSE_REPORT_MODE")
+    if report_mode not in VALID_ZERO_DOSE_REPORT_MODES:
+        raise ValueError(
+            "ZERO_DOSE_REPORT_MODE must be one of "
+            f"{sorted(VALID_ZERO_DOSE_REPORT_MODES)}"
+        )
+
+    if config.get("ZERO_DOSE_MAX_MU") <= 0:
+        raise ValueError("ZERO_DOSE_MAX_MU must be > 0")
+    if config.get("ZERO_DOSE_MACHINE_MIN_MU") < 0:
+        raise ValueError("ZERO_DOSE_MACHINE_MIN_MU must be >= 0")
+    if config.get("ZERO_DOSE_MIN_SCAN_SPEED_MM_S") <= 0:
+        raise ValueError("ZERO_DOSE_MIN_SCAN_SPEED_MM_S must be > 0")
+    if config.get("ZERO_DOSE_MIN_RUN_LENGTH") < 1:
+        raise ValueError("ZERO_DOSE_MIN_RUN_LENGTH must be >= 1")
+    if config.get("ZERO_DOSE_BOUNDARY_HOLDOFF_S") < 0:
+        raise ValueError("ZERO_DOSE_BOUNDARY_HOLDOFF_S must be >= 0")
+
+
+def _parse_zero_dose_filter_config(yaml_data: dict) -> dict:
+    section = yaml_data.get("zero_dose_filter") or {}
+    if not isinstance(section, dict):
+        raise ValueError("Invalid YAML structure: 'zero_dose_filter' must be a dict")
+
+    merged = DEFAULT_ZERO_DOSE_FILTER.copy()
+    merged.update(section)
+    return {
+        "ZERO_DOSE_FILTER_ENABLED": bool(merged["enabled"]),
+        "ZERO_DOSE_MAX_MU": float(merged["max_mu"]),
+        "ZERO_DOSE_MACHINE_MIN_MU": float(merged["machine_min_mu"]),
+        "ZERO_DOSE_MIN_SCAN_SPEED_MM_S": float(merged["min_scan_speed_mm_s"]),
+        "ZERO_DOSE_MIN_RUN_LENGTH": int(merged["min_run_length"]),
+        "ZERO_DOSE_KEEP_FIRST_ZERO_MU_SPOT": bool(
+            merged["keep_first_zero_mu_spot"]
+        ),
+        "ZERO_DOSE_BOUNDARY_HOLDOFF_S": float(merged["boundary_holdoff_s"]),
+        "ZERO_DOSE_REPORT_MODE": str(merged["report_mode"]).lower(),
+    }
+
 
 def parse_app_config(file_path: str) -> dict:
     config = _parse_key_value_config(
@@ -105,6 +156,7 @@ def parse_yaml_config(file_path: str) -> dict:
         "REPORT_STYLE": report_style,
         "SAVE_DEBUG_CSV": save_debug_csv,
     }
+    config.update(_parse_zero_dose_filter_config(yaml_data))
 
     _validate_app_config(config)
     return config

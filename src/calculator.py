@@ -11,6 +11,7 @@ HISTOGRAM_BIN_STEP = 0.01  # histogram bin width in mm
 DEFAULT_SETTLING_THRESHOLD_MM = 0.5
 DEFAULT_SETTLING_CONSECUTIVE_SAMPLES = 10
 DEFAULT_SETTLING_SEARCH_WINDOW_S = 0.001
+DEFAULT_ZERO_DOSE_BOUNDARY_HOLDOFF_S = 0.0006
 
 
 def gaussian(x, amplitude, mean, stddev):
@@ -87,6 +88,32 @@ def _get_optional_series(data, key, length, warning_context):
         return np.zeros(length, dtype=float)
 
     return values
+
+
+def _assign_samples_to_spots(log_time_s, spot_time_axis_s):
+    spot_time_axis_s = np.asarray(spot_time_axis_s, dtype=float)
+    if spot_time_axis_s.size == 0:
+        return np.zeros(0, dtype=int)
+    assigned = np.searchsorted(spot_time_axis_s, log_time_s, side="left")
+    return np.clip(assigned, 0, len(spot_time_axis_s) - 1)
+
+
+def _calculate_stats_with_fallback(primary_x, primary_y, fallback_x, fallback_y):
+    if primary_x.size > 0 and primary_y.size > 0:
+        return (
+            _calculate_axis_stats(primary_x),
+            _calculate_axis_stats(primary_y),
+            False,
+            primary_x,
+            primary_y,
+        )
+    return (
+        _calculate_axis_stats(fallback_x),
+        _calculate_axis_stats(fallback_y),
+        True,
+        fallback_x,
+        fallback_y,
+    )
 
 
 def calculate_differences_for_layer(
@@ -172,6 +199,79 @@ def calculate_differences_for_layer(
     stats_diff_x = diff_x[settled_mask] if np.any(settled_mask) else diff_x
     stats_diff_y = diff_y[settled_mask] if np.any(settled_mask) else diff_y
 
+    assigned_spot_index = _assign_samples_to_spots(log_time_s, plan_time_s)
+    spot_mu = np.asarray(
+        plan_layer.get("mu", np.zeros(len(plan_time_s), dtype=float)),
+        dtype=float,
+    )
+    if spot_mu.shape[0] != len(plan_time_s):
+        spot_mu = np.zeros(len(plan_time_s), dtype=float)
+    spot_is_transit_min_dose = np.asarray(
+        plan_layer.get(
+            "spot_is_transit_min_dose",
+            np.zeros(len(plan_time_s), dtype=bool),
+        ),
+        dtype=bool,
+    )
+    if spot_is_transit_min_dose.shape[0] != len(plan_time_s):
+        spot_is_transit_min_dose = np.zeros(len(plan_time_s), dtype=bool)
+    spot_scan_speed_mm_s = np.asarray(
+        plan_layer.get(
+            "spot_scan_speed_mm_s",
+            np.zeros(len(plan_time_s), dtype=float),
+        ),
+        dtype=float,
+    )
+    if spot_scan_speed_mm_s.shape[0] != len(plan_time_s):
+        spot_scan_speed_mm_s = np.zeros(len(plan_time_s), dtype=float)
+
+    sample_is_transit_min_dose = spot_is_transit_min_dose[assigned_spot_index]
+    sample_is_boundary_carryover = np.zeros(len(diff_x), dtype=bool)
+    boundary_holdoff_s = float(
+        config.get(
+            "ZERO_DOSE_BOUNDARY_HOLDOFF_S",
+            DEFAULT_ZERO_DOSE_BOUNDARY_HOLDOFF_S,
+        )
+    )
+    if boundary_holdoff_s > 0:
+        treatment_after_transit = np.flatnonzero(
+            (~spot_is_transit_min_dose[1:]) & spot_is_transit_min_dose[:-1]
+        ) + 1
+        for spot_idx in treatment_after_transit:
+            spot_start_s = plan_time_s[spot_idx - 1]
+            spot_samples = assigned_spot_index == spot_idx
+            sample_is_boundary_carryover |= (
+                spot_samples
+                & ((log_time_s - spot_start_s) < boundary_holdoff_s)
+            )
+
+    zero_dose_filter_enabled = bool(config.get("ZERO_DOSE_FILTER_ENABLED", False))
+    filtered_mask = (
+        settled_mask
+        & (~sample_is_transit_min_dose)
+        & (~sample_is_boundary_carryover)
+    )
+    sample_is_included_filtered_stats = (
+        filtered_mask if zero_dose_filter_enabled else settled_mask.copy()
+    )
+
+    filtered_stats_x = filtered_stats_y = None
+    filtered_stats_fallback_to_raw = False
+    filtered_diff_x = filtered_diff_y = None
+    if zero_dose_filter_enabled:
+        (
+            filtered_stats_x,
+            filtered_stats_y,
+            filtered_stats_fallback_to_raw,
+            filtered_diff_x,
+            filtered_diff_y,
+        ) = _calculate_stats_with_fallback(
+            diff_x[filtered_mask],
+            diff_y[filtered_mask],
+            stats_diff_x,
+            stats_diff_y,
+        )
+
     plan_end = float(plan_time_s[-1]) if len(plan_time_s) else 0.0
     log_end = float(log_time_s[-1]) if len(log_time_s) else 0.0
     max_end = max(plan_end, log_end)
@@ -196,10 +296,19 @@ def calculate_differences_for_layer(
             log_velocity_mm_s,
             interp_plan_mu,
             log_mu,
+            assigned_spot_index,
+            spot_mu[assigned_spot_index],
+            spot_scan_speed_mm_s[assigned_spot_index],
+            sample_is_transit_min_dose.astype(int),
+            sample_is_boundary_carryover.astype(int),
+            sample_is_included_filtered_stats.astype(int),
         ))
         header = (
             "log_time_s,interp_plan_x,interp_plan_y,log_x,log_y,x_raw,y_raw,"
-            "layer_num,beam_on_off,is_settling,log_velocity_mm_s,interp_plan_mu,log_mu"
+            "layer_num,beam_on_off,is_settling,log_velocity_mm_s,interp_plan_mu,log_mu,"
+            "assigned_spot_index,assigned_spot_mu,assigned_spot_scan_speed_mm_s,"
+            "sample_is_transit_min_dose,sample_is_boundary_carryover,"
+            "sample_is_included_filtered_stats"
         )
         np.savetxt(csv_filename, data_to_save, delimiter=",", header=header, comments="")
 
@@ -209,6 +318,12 @@ def calculate_differences_for_layer(
     results['settling_index'] = int(settling_index)
     results['settling_samples_count'] = int(np.sum(is_settling))
     results['settling_status'] = settling_status
+    results['assigned_spot_index'] = assigned_spot_index
+    results['assigned_spot_mu'] = spot_mu[assigned_spot_index]
+    results['assigned_spot_scan_speed_mm_s'] = spot_scan_speed_mm_s[assigned_spot_index]
+    results['sample_is_transit_min_dose'] = sample_is_transit_min_dose
+    results['sample_is_boundary_carryover'] = sample_is_boundary_carryover
+    results['sample_is_included_filtered_stats'] = sample_is_included_filtered_stats
 
     bins = np.arange(HISTOGRAM_RANGE_MM[0], HISTOGRAM_RANGE_MM[1] + HISTOGRAM_BIN_STEP, HISTOGRAM_BIN_STEP)
     hist_x, _ = np.histogram(stats_diff_x, bins=bins, density=True)
@@ -258,5 +373,44 @@ def calculate_differences_for_layer(
     results['p95_abs_diff_x'] = stats_x['p95_abs']
     results['p95_abs_diff_y'] = stats_y['p95_abs']
     results['time_overlap_fraction'] = overlap
+
+    if zero_dose_filter_enabled:
+        results['filtered_diff_x'] = filtered_diff_x
+        results['filtered_diff_y'] = filtered_diff_y
+        results['filtered_mean_diff_x'] = filtered_stats_x['mean']
+        results['filtered_mean_diff_y'] = filtered_stats_y['mean']
+        results['filtered_std_diff_x'] = filtered_stats_x['std']
+        results['filtered_std_diff_y'] = filtered_stats_y['std']
+        results['filtered_rmse_x'] = filtered_stats_x['rmse']
+        results['filtered_rmse_y'] = filtered_stats_y['rmse']
+        results['filtered_max_abs_diff_x'] = filtered_stats_x['max_abs']
+        results['filtered_max_abs_diff_y'] = filtered_stats_y['max_abs']
+        results['filtered_p95_abs_diff_x'] = filtered_stats_x['p95_abs']
+        results['filtered_p95_abs_diff_y'] = filtered_stats_y['p95_abs']
+        results['filtered_stats_fallback_to_raw'] = filtered_stats_fallback_to_raw
+        results['num_filtered_samples'] = int(np.sum(settled_mask & (~filtered_mask)))
+        results['num_included_samples'] = int(np.sum(filtered_mask))
+        settled_count = int(np.sum(settled_mask))
+        results['filtered_sample_fraction'] = (
+            float(np.sum(settled_mask & (~filtered_mask))) / settled_count
+            if settled_count
+            else 0.0
+        )
+        sample_counts_by_spot = np.bincount(
+            assigned_spot_index,
+            minlength=len(plan_time_s),
+        ).astype(float)
+        per_sample_mu = np.divide(
+            spot_mu[assigned_spot_index],
+            sample_counts_by_spot[assigned_spot_index],
+            out=np.zeros_like(log_time_s, dtype=float),
+            where=sample_counts_by_spot[assigned_spot_index] > 0,
+        )
+        total_mu = float(np.sum(spot_mu))
+        results['filtered_mu_fraction_estimate'] = (
+            float(np.sum(per_sample_mu[settled_mask & (~filtered_mask)])) / total_mu
+            if total_mu > 0
+            else 0.0
+        )
 
     return results

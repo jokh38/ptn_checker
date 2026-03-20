@@ -70,8 +70,8 @@ class TestBeamFiltering(unittest.TestCase):
         expected_dose2 = np.array([60, 70, 80], dtype=np.float32)
         np.testing.assert_array_equal(data['dose2_au'], expected_dose2)
 
-        # Expected cumulative MU: cumsum([110, 130, 150]) = [110, 240, 390]
-        expected_cumulative_mu = np.array([110, 240, 390], dtype=np.float32)
+        # Parser MU is cumulative dose1_au only; dose2_au is preserved separately.
+        expected_cumulative_mu = np.array([50, 110, 180], dtype=np.float32)
         np.testing.assert_array_equal(data['mu'], expected_cumulative_mu)
 
     def test_filtered_position_calculation(self):

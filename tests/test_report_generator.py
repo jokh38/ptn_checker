@@ -10,7 +10,8 @@ from src.report_generator import (
     generate_report,
     _generate_error_bar_plot_for_beam,
     _generate_per_layer_position_plot,
-    _save_plots_to_pdf_grid
+    _save_plots_to_pdf_grid,
+    _layer_passes,
 )
 
 
@@ -170,6 +171,25 @@ class TestReportGenerator(unittest.TestCase):
         expected_pdf_path = os.path.join(self.output_dir, "analysis_report.pdf")
         generate_report(report_data, self.output_dir)
         self.assertTrue(os.path.exists(expected_pdf_path))
+
+    def test_layer_passes_uses_filtered_metrics_when_requested(self):
+        results = {
+            "mean_diff_x": 0.1,
+            "mean_diff_y": 0.1,
+            "std_diff_x": 0.5,
+            "std_diff_y": 0.5,
+            "max_abs_diff_x": 8.0,
+            "max_abs_diff_y": 8.0,
+            "filtered_mean_diff_x": 0.1,
+            "filtered_mean_diff_y": 0.1,
+            "filtered_std_diff_x": 0.5,
+            "filtered_std_diff_y": 0.5,
+            "filtered_max_abs_diff_x": 1.0,
+            "filtered_max_abs_diff_y": 1.0,
+        }
+
+        self.assertFalse(_layer_passes(results))
+        self.assertTrue(_layer_passes(results, report_mode="filtered"))
 
 if __name__ == '__main__':
     unittest.main()

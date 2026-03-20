@@ -21,21 +21,37 @@ THRESHOLDS = {
 }
 
 
-def _generate_error_bar_plot_for_beam(beam_name, layers_data):
+def _metric_key(results, base_key, report_mode):
+    if report_mode != "raw":
+        filtered_key = f"filtered_{base_key}"
+        if filtered_key in results:
+            return filtered_key
+    return base_key
+
+
+def _metric_value(results, base_key, report_mode):
+    return results.get(_metric_key(results, base_key, report_mode), 0)
+
+
+def _generate_error_bar_plot_for_beam(beam_name, layers_data, report_mode="raw"):
     """Generates an error bar plot figure for a single beam."""
     num_layers = len(layers_data)
     layer_indices = np.arange(1, num_layers + 1)
     mean_diff_x = [
-        layer.get("results", {}).get("mean_diff_x", 0) for layer in layers_data
+        _metric_value(layer.get("results", {}), "mean_diff_x", report_mode)
+        for layer in layers_data
     ]
     mean_diff_y = [
-        layer.get("results", {}).get("mean_diff_y", 0) for layer in layers_data
+        _metric_value(layer.get("results", {}), "mean_diff_y", report_mode)
+        for layer in layers_data
     ]
     std_diff_x = [
-        layer.get("results", {}).get("std_diff_x", 0) for layer in layers_data
+        _metric_value(layer.get("results", {}), "std_diff_x", report_mode)
+        for layer in layers_data
     ]
     std_diff_y = [
-        layer.get("results", {}).get("std_diff_y", 0) for layer in layers_data
+        _metric_value(layer.get("results", {}), "std_diff_y", report_mode)
+        for layer in layers_data
     ]
 
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=A4_FIGSIZE)
@@ -163,24 +179,36 @@ def _gaussian(x, amplitude, mean, stddev):
     return amplitude * np.exp(-(((x - mean) / stddev) ** 2) / 2)
 
 
-def _layer_passes(results):
+def _layer_passes(results, report_mode="raw"):
     """Check whether a single layer's results are within thresholds."""
     mean_ok = (
-        abs(results.get("mean_diff_x", 0)) <= THRESHOLDS["mean_diff_mm"]
-        and abs(results.get("mean_diff_y", 0)) <= THRESHOLDS["mean_diff_mm"]
+        abs(_metric_value(results, "mean_diff_x", report_mode))
+        <= THRESHOLDS["mean_diff_mm"]
+        and abs(_metric_value(results, "mean_diff_y", report_mode))
+        <= THRESHOLDS["mean_diff_mm"]
     )
     std_ok = (
-        results.get("std_diff_x", 0) <= THRESHOLDS["std_diff_mm"]
-        and results.get("std_diff_y", 0) <= THRESHOLDS["std_diff_mm"]
+        _metric_value(results, "std_diff_x", report_mode)
+        <= THRESHOLDS["std_diff_mm"]
+        and _metric_value(results, "std_diff_y", report_mode)
+        <= THRESHOLDS["std_diff_mm"]
     )
     max_ok = (
-        results.get("max_abs_diff_x", 0) <= THRESHOLDS["max_abs_diff_mm"]
-        and results.get("max_abs_diff_y", 0) <= THRESHOLDS["max_abs_diff_mm"]
+        _metric_value(results, "max_abs_diff_x", report_mode)
+        <= THRESHOLDS["max_abs_diff_mm"]
+        and _metric_value(results, "max_abs_diff_y", report_mode)
+        <= THRESHOLDS["max_abs_diff_mm"]
     )
     return mean_ok and std_ok and max_ok
 
 
-def _generate_summary_page(beam_name, beam_data, patient_id="", patient_name=""):
+def _generate_summary_page(
+    beam_name,
+    beam_data,
+    patient_id="",
+    patient_name="",
+    report_mode="raw",
+):
     """
     Generates a one-page A4 summary dashboard for a single beam.
 
@@ -215,21 +243,23 @@ def _generate_summary_page(beam_name, beam_data, patient_id="", patient_name="")
         raw_idx = layer.get("layer_index", 0)
         layer_labels.append(str(int(raw_idx) // 2 + 1))
 
-        mean_x_all.append(r.get("mean_diff_x", 0))
-        mean_y_all.append(r.get("mean_diff_y", 0))
-        std_x_all.append(r.get("std_diff_x", 0))
-        std_y_all.append(r.get("std_diff_y", 0))
-        rmse_x_all.append(r.get("rmse_x", 0))
-        rmse_y_all.append(r.get("rmse_y", 0))
-        max_x_all.append(r.get("max_abs_diff_x", 0))
-        max_y_all.append(r.get("max_abs_diff_y", 0))
-        p95_x_all.append(r.get("p95_abs_diff_x", 0))
-        p95_y_all.append(r.get("p95_abs_diff_y", 0))
+        mean_x_all.append(_metric_value(r, "mean_diff_x", report_mode))
+        mean_y_all.append(_metric_value(r, "mean_diff_y", report_mode))
+        std_x_all.append(_metric_value(r, "std_diff_x", report_mode))
+        std_y_all.append(_metric_value(r, "std_diff_y", report_mode))
+        rmse_x_all.append(_metric_value(r, "rmse_x", report_mode))
+        rmse_y_all.append(_metric_value(r, "rmse_y", report_mode))
+        max_x_all.append(_metric_value(r, "max_abs_diff_x", report_mode))
+        max_y_all.append(_metric_value(r, "max_abs_diff_y", report_mode))
+        p95_x_all.append(_metric_value(r, "p95_abs_diff_x", report_mode))
+        p95_y_all.append(_metric_value(r, "p95_abs_diff_y", report_mode))
 
-        if "diff_x" in r:
-            all_diff_x.append(r["diff_x"])
-        if "diff_y" in r:
-            all_diff_y.append(r["diff_y"])
+        diff_x_key = _metric_key(r, "diff_x", report_mode)
+        diff_y_key = _metric_key(r, "diff_y", report_mode)
+        if diff_x_key in r:
+            all_diff_x.append(r[diff_x_key])
+        if diff_y_key in r:
+            all_diff_y.append(r[diff_y_key])
 
         plan_pos = r.get("plan_positions")
         log_pos = r.get("log_positions")
@@ -238,7 +268,7 @@ def _generate_summary_page(beam_name, beam_data, patient_id="", patient_name="")
         if log_pos is not None:
             all_log_pos.append(log_pos)
 
-        pass_flags.append(_layer_passes(r))
+        pass_flags.append(_layer_passes(r, report_mode=report_mode))
 
     num_pass = sum(pass_flags)
     pass_rate = num_pass / num_layers * 100 if num_layers > 0 else 0
@@ -296,6 +326,12 @@ def _generate_summary_page(beam_name, beam_data, patient_id="", patient_name="")
         0.50, 0.935, info_text,
         ha="center", va="top", fontsize=8, color="#555555",
     )
+    if report_mode != "raw":
+        fig.text(
+            0.50, 0.918,
+            f"Zero-dose filter active: {report_mode} metrics shown",
+            ha="center", va="top", fontsize=7, color="#555555",
+        )
 
     # -- Metrics table panel --
     ax_metrics = fig.add_axes([0.08, 0.855, 0.84, 0.07])
@@ -496,7 +532,13 @@ def _generate_summary_page(beam_name, beam_data, patient_id="", patient_name="")
     return fig
 
 
-def generate_report(report_data, output_dir, report_style="summary", report_name=None):
+def generate_report(
+    report_data,
+    output_dir,
+    report_style="summary",
+    report_name=None,
+    report_mode="raw",
+):
     """
     Generates a PDF report with analysis plots organized by beam.
 
@@ -527,7 +569,11 @@ def generate_report(report_data, output_dir, report_style="summary", report_name
 
             if report_style == "summary":
                 summary_fig = _generate_summary_page(
-                    beam_name, beam_data, patient_id=patient_id, patient_name=patient_name
+                    beam_name,
+                    beam_data,
+                    patient_id=patient_id,
+                    patient_name=patient_name,
+                    report_mode=report_mode,
                 )
                 pdf.savefig(summary_fig)
                 plt.close(summary_fig)
@@ -535,7 +581,9 @@ def generate_report(report_data, output_dir, report_style="summary", report_name
             else:
                 # Classic report: error bar plot + per-layer 2D position plots
                 error_bar_fig = _generate_error_bar_plot_for_beam(
-                    beam_name, beam_data["layers"]
+                    beam_name,
+                    beam_data["layers"],
+                    report_mode=report_mode,
                 )
                 pdf.savefig(error_bar_fig)
                 plt.close(error_bar_fig)
