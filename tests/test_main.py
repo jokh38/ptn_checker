@@ -84,12 +84,20 @@ class TestMain(unittest.TestCase):
             f.write("SETTLING_CONSECUTIVE_SAMPLES\t3\n")
 
     def create_dummy_yaml_config_file(
-        self, filename, report_style="summary", save_debug_csv="off"
+        self,
+        filename,
+        report_style="summary",
+        save_debug_csv="off",
+        zero_dose_enabled=False,
+        zero_dose_report_mode="filtered",
     ):
         with open(filename, "w", encoding="utf-8") as f:
             f.write("app:\n")
             f.write(f'  report_style: "{report_style}"\n')
             f.write(f'  save_debug_csv: "{save_debug_csv}"\n')
+            f.write("zero_dose_filter:\n")
+            f.write(f"  enabled: {'true' if zero_dose_enabled else 'false'}\n")
+            f.write(f'  report_mode: "{zero_dose_report_mode}"\n')
 
     def test_find_ptn_files(self):
         """
@@ -242,6 +250,58 @@ class TestMain(unittest.TestCase):
             ],
             csv_calls,
         )
+
+    def test_run_analysis_passes_zero_dose_config_to_calculator(self):
+        output_dir = os.path.join(self.test_dir, "output_zero_dose")
+        os.makedirs(output_dir)
+        self.create_dummy_yaml_config_file(
+            self.yaml_config_path,
+            zero_dose_enabled=True,
+            zero_dose_report_mode="filtered",
+        )
+
+        captured_configs = []
+
+        def fake_calculate_differences_for_layer(
+            plan_layer,
+            log_data,
+            save_to_csv=False,
+            csv_filename="",
+            config=None,
+        ):
+            captured_configs.append(config)
+            return {
+                "diff_x": np.array([0.0]),
+                "diff_y": np.array([0.0]),
+                "mean_diff_x": 0.0,
+                "mean_diff_y": 0.0,
+                "std_diff_x": 0.0,
+                "std_diff_y": 0.0,
+                "rmse_x": 0.0,
+                "rmse_y": 0.0,
+                "max_abs_diff_x": 0.0,
+                "max_abs_diff_y": 0.0,
+                "p95_abs_diff_x": 0.0,
+                "p95_abs_diff_y": 0.0,
+                "plan_positions": np.array([[0.0, 0.0]]),
+                "log_positions": np.array([[0.0, 0.0]]),
+                "hist_fit_x": {"amplitude": 0.0, "mean": 0.0, "stddev": 0.0},
+                "hist_fit_y": {"amplitude": 0.0, "mean": 0.0, "stddev": 0.0},
+                "time_overlap_fraction": 1.0,
+                "is_settling": np.array([False]),
+                "settling_index": 0,
+                "settling_samples_count": 0,
+                "settling_status": "settled",
+            }
+
+        with mock.patch.object(main, "calculate_differences_for_layer", side_effect=fake_calculate_differences_for_layer), mock.patch.object(
+            main, "generate_report"
+        ):
+            run_analysis(self.test_dir, self.dcm_file, output_dir)
+
+        self.assertTrue(captured_configs)
+        self.assertTrue(captured_configs[0]["ZERO_DOSE_FILTER_ENABLED"])
+        self.assertEqual(captured_configs[0]["ZERO_DOSE_REPORT_MODE"], "filtered")
 
 
 if __name__ == "__main__":
