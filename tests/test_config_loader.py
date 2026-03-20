@@ -65,11 +65,28 @@ class TestConfigLoader(unittest.TestCase):
             f.write("app:\n")
             f.write('  report_style: "classic"\n')
             f.write('  save_debug_csv: "on"\n')
+            f.write("zero_dose_filter:\n")
+            f.write("  enabled: true\n")
+            f.write("  max_mu: 0.002\n")
+            f.write("  machine_min_mu: 0.000452\n")
+            f.write("  min_scan_speed_mm_s: 12000\n")
+            f.write("  min_run_length: 3\n")
+            f.write("  keep_first_zero_mu_spot: false\n")
+            f.write("  boundary_holdoff_s: 0.0008\n")
+            f.write('  report_mode: "both"\n')
 
         config = parse_yaml_config(yaml_path)
 
         self.assertEqual(config["REPORT_STYLE"], "classic")
         self.assertEqual(config["SAVE_DEBUG_CSV"], "on")
+        self.assertTrue(config["ZERO_DOSE_FILTER_ENABLED"])
+        self.assertEqual(config["ZERO_DOSE_MAX_MU"], 0.002)
+        self.assertEqual(config["ZERO_DOSE_MACHINE_MIN_MU"], 0.000452)
+        self.assertEqual(config["ZERO_DOSE_MIN_SCAN_SPEED_MM_S"], 12000)
+        self.assertEqual(config["ZERO_DOSE_MIN_RUN_LENGTH"], 3)
+        self.assertFalse(config["ZERO_DOSE_KEEP_FIRST_ZERO_MU_SPOT"])
+        self.assertEqual(config["ZERO_DOSE_BOUNDARY_HOLDOFF_S"], 0.0008)
+        self.assertEqual(config["ZERO_DOSE_REPORT_MODE"], "both")
 
     def test_parse_yaml_config_rejects_invalid_report_style(self):
         yaml_path = os.path.join(self.test_dir, "config.yaml")
@@ -80,6 +97,18 @@ class TestConfigLoader(unittest.TestCase):
             f.write('  save_debug_csv: "off"\n')
 
         with self.assertRaisesRegex(ValueError, "REPORT_STYLE"):
+            parse_yaml_config(yaml_path)
+
+    def test_parse_yaml_config_rejects_invalid_zero_dose_report_mode(self):
+        yaml_path = os.path.join(self.test_dir, "config.yaml")
+        with open(yaml_path, "w", encoding="utf-8") as f:
+            f.write("app:\n")
+            f.write('  report_style: "summary"\n')
+            f.write('  save_debug_csv: "off"\n')
+            f.write("zero_dose_filter:\n")
+            f.write('  report_mode: "invalid"\n')
+
+        with self.assertRaisesRegex(ValueError, "ZERO_DOSE_REPORT_MODE"):
             parse_yaml_config(yaml_path)
 
 

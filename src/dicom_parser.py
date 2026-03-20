@@ -3,6 +3,7 @@ import numpy as np
 import os
 
 from src.plan_timing import build_layer_time_trajectory
+from src.config_loader import DEFAULT_ZERO_DOSE_FILTER
 
 
 def F_SHI_spotW(spot_bytes):
@@ -66,7 +67,90 @@ def F_SHI_spotP(spot_bytes):
     return x_real
 
 
-def parse_dcm_file(file_path: str) -> dict:
+def _compute_spot_scan_speeds(positions_mm, segment_times_s):
+    positions_mm = np.asarray(positions_mm, dtype=float)
+    segment_times_s = np.asarray(segment_times_s, dtype=float)
+    speeds = np.zeros(len(positions_mm), dtype=float)
+    if len(positions_mm) <= 1:
+        return speeds
+
+    distances_mm = np.linalg.norm(positions_mm[1:] - positions_mm[:-1], axis=1)
+    incoming_times_s = segment_times_s[1:]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        speeds[1:] = np.divide(
+            distances_mm,
+            incoming_times_s,
+            out=np.full_like(distances_mm, np.inf, dtype=float),
+            where=incoming_times_s > 0,
+        )
+    return speeds
+
+
+def _classify_transit_min_dose_spots(
+    positions_mm,
+    mu,
+    segment_times_s,
+    zero_dose_config=None,
+):
+    cfg = DEFAULT_ZERO_DOSE_FILTER.copy()
+    if zero_dose_config:
+        cfg.update(zero_dose_config)
+
+    mu = np.asarray(mu, dtype=float)
+    scan_speed = _compute_spot_scan_speeds(positions_mm, segment_times_s)
+    if mu.size == 0:
+        return np.zeros(0, dtype=bool), scan_speed
+
+    max_mu = float(cfg["max_mu"])
+    machine_min_mu = float(cfg["machine_min_mu"])
+    min_speed = float(cfg["min_scan_speed_mm_s"])
+    min_run_length = int(cfg["min_run_length"])
+    keep_first_zero = bool(cfg["keep_first_zero_mu_spot"])
+
+    candidate = (mu <= max_mu) & (scan_speed >= min_speed)
+    transit = np.zeros_like(candidate, dtype=bool)
+
+    idx = 0
+    while idx < len(candidate):
+        if not candidate[idx]:
+            idx += 1
+            continue
+        start = idx
+        while idx + 1 < len(candidate) and candidate[idx + 1]:
+            idx += 1
+        end = idx
+        run_length = end - start + 1
+        has_adjacent_treatment = (
+            (start > 0 and not candidate[start - 1])
+            or (end + 1 < len(candidate) and not candidate[end + 1])
+        )
+        if run_length >= min_run_length and has_adjacent_treatment:
+            transit[start : end + 1] = True
+        idx += 1
+
+    machine_min_tol = max(1e-6, machine_min_mu * 0.05)
+    isolated_machine_min = (
+        candidate
+        & (~transit)
+        & np.isclose(mu, machine_min_mu, atol=machine_min_tol, rtol=0.0)
+    )
+    for idx in np.flatnonzero(isolated_machine_min):
+        has_adjacent_treatment = (
+            (idx > 0 and not candidate[idx - 1])
+            or (idx + 1 < len(candidate) and not candidate[idx + 1])
+        )
+        if has_adjacent_treatment:
+            transit[idx] = True
+
+    if keep_first_zero:
+        zero_mu_indices = np.flatnonzero(np.isclose(mu, 0.0, atol=1e-12, rtol=0.0))
+        if zero_mu_indices.size > 0:
+            transit[zero_mu_indices[0]] = False
+
+    return transit, scan_speed
+
+
+def parse_dcm_file(file_path: str, zero_dose_config: dict | None = None) -> dict:
     """
     Parses a DICOM RTPLAN file to extract spot positions and MUs.
     """
@@ -133,6 +217,38 @@ def parse_dcm_file(file_path: str) -> dict:
                 mu=mus_array,
                 energy=energy,
             )
+            classifier_config = None
+            if zero_dose_config:
+                classifier_config = {
+                    "max_mu": zero_dose_config.get(
+                        "ZERO_DOSE_MAX_MU",
+                        DEFAULT_ZERO_DOSE_FILTER["max_mu"],
+                    ),
+                    "machine_min_mu": zero_dose_config.get(
+                        "ZERO_DOSE_MACHINE_MIN_MU",
+                        DEFAULT_ZERO_DOSE_FILTER["machine_min_mu"],
+                    ),
+                    "min_scan_speed_mm_s": zero_dose_config.get(
+                        "ZERO_DOSE_MIN_SCAN_SPEED_MM_S",
+                        DEFAULT_ZERO_DOSE_FILTER["min_scan_speed_mm_s"],
+                    ),
+                    "min_run_length": zero_dose_config.get(
+                        "ZERO_DOSE_MIN_RUN_LENGTH",
+                        DEFAULT_ZERO_DOSE_FILTER["min_run_length"],
+                    ),
+                    "keep_first_zero_mu_spot": zero_dose_config.get(
+                        "ZERO_DOSE_KEEP_FIRST_ZERO_MU_SPOT",
+                        DEFAULT_ZERO_DOSE_FILTER["keep_first_zero_mu_spot"],
+                    ),
+                }
+            spot_is_transit_min_dose, spot_scan_speed_mm_s = (
+                _classify_transit_min_dose_spots(
+                    positions_mm=positions_array,
+                    mu=mus_array,
+                    segment_times_s=trajectory["segment_times_s"],
+                    zero_dose_config=classifier_config,
+                )
+            )
             plan_data['beams'][beam_number]['layers'][layer_index] = {
                 'positions': positions_array,
                 'mu': mus_array,
@@ -144,5 +260,7 @@ def parse_dcm_file(file_path: str) -> dict:
                 'segment_times_s': trajectory['segment_times_s'],
                 'layer_doserate_mu_per_s': trajectory['layer_doserate_mu_per_s'],
                 'total_time_s': trajectory['total_time_s'],
+                'spot_is_transit_min_dose': spot_is_transit_min_dose,
+                'spot_scan_speed_mm_s': spot_scan_speed_mm_s,
             }
     return plan_data

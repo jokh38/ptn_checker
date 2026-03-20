@@ -16,6 +16,9 @@ logger = logging.getLogger(__name__)
 class LayerRangeInfo(NamedTuple):
     energy: float
     dose1_range_code: int
+    dose2_range_code: int
+    plan_dose1_range_code: int
+    plan_dose2_range_code: int
 
 
 def parse_planrange_for_directory(log_dir: str) -> dict[str, LayerRangeInfo]:
@@ -85,6 +88,9 @@ def parse_planrange_for_directory(log_dir: str) -> dict[str, LayerRangeInfo]:
 
                         energy = float(row[2])
                         dose1_range_code = int(row[5])
+                        dose2_range_code = int(row[6])
+                        plan_dose1_range_code = int(row[7])
+                        plan_dose2_range_code = int(row[8])
                         ptn_filename = row[9].strip()
 
                         abs_ptn_path = os.path.abspath(
@@ -93,6 +99,9 @@ def parse_planrange_for_directory(log_dir: str) -> dict[str, LayerRangeInfo]:
                         lookup[abs_ptn_path] = LayerRangeInfo(
                             energy=energy,
                             dose1_range_code=dose1_range_code,
+                            dose2_range_code=dose2_range_code,
+                            plan_dose1_range_code=plan_dose1_range_code,
+                            plan_dose2_range_code=plan_dose2_range_code,
                         )
                     except (ValueError, IndexError) as e:
                         logger.warning(

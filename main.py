@@ -34,8 +34,17 @@ def run_analysis(log_dir, dcm_file, output_dir, report_name=None):
         raise FileNotFoundError(f"DICOM file not found: {dcm_file}")
 
     logger.info(f"Parsing DICOM file: {dcm_file}")
+    app_config_path = os.path.join(os.path.dirname(__file__) or ".", "config.yaml")
+    if not os.path.exists(app_config_path):
+        raise FileNotFoundError(f"App config file not found: {app_config_path}")
+
     try:
-        plan_data_raw = parse_dcm_file(dcm_file)
+        app_config = parse_yaml_config(app_config_path)
+    except Exception as e:
+        raise ValueError(f"Failed to parse config file: {e}")
+
+    try:
+        plan_data_raw = parse_dcm_file(dcm_file, zero_dose_config=app_config)
     except Exception as e:
         raise ValueError(f"Failed to parse DICOM file: {e}")
 
@@ -45,11 +54,8 @@ def run_analysis(log_dir, dcm_file, output_dir, report_name=None):
     machine_name = plan_data_raw.get("machine_name", "UNKNOWN")
     logger.info(f"Detected treatment machine: {machine_name}")
 
-    app_config_path = os.path.join(os.path.dirname(__file__) or ".", "config.yaml")
     config_file = f"scv_init_{machine_name.upper()}.txt"
     config_path = os.path.join(os.path.dirname(__file__) or ".", config_file)
-    if not os.path.exists(app_config_path):
-        raise FileNotFoundError(f"App config file not found: {app_config_path}")
     if not os.path.exists(config_path):
         available = glob.glob(
             os.path.join(os.path.dirname(__file__) or ".", "scv_init_*.txt")
@@ -58,10 +64,10 @@ def run_analysis(log_dir, dcm_file, output_dir, report_name=None):
         raise FileNotFoundError(f"Config file not found: {config_path}")
 
     try:
-        app_config = parse_yaml_config(app_config_path)
         config = parse_scv_init(config_path)
     except Exception as e:
         raise ValueError(f"Failed to parse config file: {e}")
+    analysis_config = {**config, **app_config}
 
     ptn_files = sorted(find_ptn_files(log_dir))
     planrange_lookup = parse_planrange_for_directory(log_dir)
@@ -133,7 +139,7 @@ def run_analysis(log_dir, dcm_file, output_dir, report_name=None):
                         log_data_raw,
                         save_to_csv=save_csv_for_this_layer,
                         csv_filename=csv_filepath,
-                        config=config,
+                        config=analysis_config,
                     )
                 except (KeyError, ValueError, TypeError) as e:
                     logger.error(
@@ -168,6 +174,7 @@ def run_analysis(log_dir, dcm_file, output_dir, report_name=None):
         output_dir,
         report_style=app_config["REPORT_STYLE"],
         report_name=report_name,
+        report_mode=app_config["ZERO_DOSE_REPORT_MODE"],
     )
     logger.info("Done.")
 
