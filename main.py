@@ -87,7 +87,6 @@ def run_analysis(log_dir, dcm_file, output_dir, report_name=None):
     }
     ptn_file_iter = iter(ptn_files)
     save_debug_csv = app_config["SAVE_DEBUG_CSV"] == "on"
-    debug_csv_saved = False
 
     for beam_number, beam_data in plan_data_raw["beams"].items():
         beam_name = beam_data.get("name", f"Beam {beam_number}")
@@ -121,7 +120,7 @@ def run_analysis(log_dir, dcm_file, output_dir, report_name=None):
                     )
 
                 try:
-                    save_csv_for_this_layer = save_debug_csv and not debug_csv_saved
+                    save_csv_for_this_layer = save_debug_csv
                     csv_filepath = ""
                     if save_csv_for_this_layer:
                         csv_filepath = os.path.join(
@@ -136,8 +135,6 @@ def run_analysis(log_dir, dcm_file, output_dir, report_name=None):
                         csv_filename=csv_filepath,
                         config=config,
                     )
-                    if save_csv_for_this_layer:
-                        debug_csv_saved = True
                 except (KeyError, ValueError, TypeError) as e:
                     logger.error(
                         f"Error calculating differences for {beam_name}, Layer {layer_index}: {e}"

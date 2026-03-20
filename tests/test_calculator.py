@@ -165,6 +165,7 @@ class TestCalculator(unittest.TestCase):
             "time_axis_s": np.array([0.0, 1.0, 2.0]),
             "trajectory_x_mm": np.array([0.0, 0.0, 0.0]),
             "trajectory_y_mm": np.array([0.0, 0.0, 0.0]),
+            "cumulative_mu": np.array([1.0, 2.0, 3.0]),
         }
         log_data = {
             "time_ms": np.array([0.0, 0.3, 0.6]),
@@ -174,6 +175,7 @@ class TestCalculator(unittest.TestCase):
             "y_raw": np.array([4.0, 5.0, 6.0]),
             "layer_num": np.array([7.0, 7.0, 7.0]),
             "beam_on_off": np.array([50000.0, 50000.0, 50000.0]),
+            "mu": np.array([0.5, 1.5, 2.5]),
         }
         config = {
             "SETTLING_THRESHOLD_MM": 0.5,
@@ -191,12 +193,58 @@ class TestCalculator(unittest.TestCase):
                 config=config,
             )
 
-            with open(csv_path, "r", encoding="utf-8") as handle:
-                header = handle.readline().strip()
-                first_row = handle.readline().strip()
+            csv_data = np.genfromtxt(
+                csv_path,
+                delimiter=",",
+                names=True,
+                dtype=float,
+                encoding="utf-8",
+            )
 
-        self.assertIn("is_settling", header)
-        self.assertTrue(first_row.endswith(",1.000000000000000000e+00"))
+        self.assertIn("is_settling", csv_data.dtype.names)
+        self.assertEqual(1.0, csv_data["is_settling"][0])
+
+    def test_calculator_writes_velocity_and_mu_columns_to_csv(self):
+        plan_layer = {
+            "time_axis_s": np.array([0.0, 1.0, 2.0]),
+            "trajectory_x_mm": np.array([0.0, 3.0, 6.0]),
+            "trajectory_y_mm": np.array([0.0, 4.0, 4.0]),
+            "cumulative_mu": np.array([1.0, 3.0, 6.0]),
+        }
+        log_data = {
+            "time_ms": np.array([0.0, 1000.0, 2000.0]),
+            "x": np.array([0.0, 3.0, 6.0]),
+            "y": np.array([0.0, 4.0, 4.0]),
+            "x_raw": np.array([10.0, 11.0, 12.0]),
+            "y_raw": np.array([20.0, 21.0, 22.0]),
+            "layer_num": np.array([2.0, 2.0, 2.0]),
+            "beam_on_off": np.array([50000.0, 50000.0, 50000.0]),
+            "mu": np.array([0.5, 2.5, 5.0]),
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            csv_path = os.path.join(tmpdir, "debug.csv")
+            calculate_differences_for_layer(
+                plan_layer,
+                log_data,
+                save_to_csv=True,
+                csv_filename=csv_path,
+            )
+
+            csv_data = np.genfromtxt(
+                csv_path,
+                delimiter=",",
+                names=True,
+                dtype=float,
+                encoding="utf-8",
+            )
+
+        self.assertIn("log_velocity_mm_s", csv_data.dtype.names)
+        self.assertIn("interp_plan_mu", csv_data.dtype.names)
+        self.assertIn("log_mu", csv_data.dtype.names)
+        np.testing.assert_allclose(csv_data["log_velocity_mm_s"], [0.0, 5.0, 3.0])
+        np.testing.assert_allclose(csv_data["interp_plan_mu"], [1.0, 3.0, 6.0])
+        np.testing.assert_allclose(csv_data["log_mu"], [0.5, 2.5, 5.0])
 
 if __name__ == '__main__':
     unittest.main()
