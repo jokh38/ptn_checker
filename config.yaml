@@ -1,0 +1,6 @@
+# PTN Checker Configuration
+
+# Application-level settings (migrated from app_config.txt)
+app:
+  report_style: "summary"    # "summary" or "classic"
+  save_debug_csv: "off"      # "on" or "off"

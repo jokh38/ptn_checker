@@ -65,7 +65,6 @@ python main.py --log_dir <path_to_ptn_files> --dcm_file <path_to_dicom_file> --o
 | `--log_dir` | Yes | Directory containing `.ptn` log files (searches recursively) |
 | `--dcm_file` | Yes | Path to the DICOM RTPLAN file (`.dcm`) |
 | `-o, --output` | No | Directory to save the analysis report. Default: `analysis_report` |
-| `--report-style` | No | Report format: `summary` (one page per beam) or `classic` (multi-page detailed). Default: `summary` |
 
 ### Example
 
@@ -73,8 +72,7 @@ python main.py --log_dir <path_to_ptn_files> --dcm_file <path_to_dicom_file> --o
 python main.py \
   --log_dir ./Data_ex/1.2.840.113854.19.1.19271.1/2025042401440800 \
   --dcm_file ./plan.dcm \
-  --output ./reports \
-  --report-style summary
+  --output ./reports
 ```
 
 ### Output
@@ -82,7 +80,7 @@ python main.py \
 The tool generates:
 - **`{case_id}_{date}.pdf`**: Main analysis report (e.g., `2025042401440800_2025-01-15.pdf`)
   - Report name is derived from the log directory basename and current date
-- **`debug_data_beam_<N>_layer_<M>.csv`** (optional): Debug CSV file for the first processed layer containing interpolated and raw data
+- **`debug_data_beam_<N>_layer_<M>.csv`** (optional): Debug CSV file for the first processed layer containing interpolated and raw data when `SAVE_DEBUG_CSV=on`
 
 ### Report Styles
 
@@ -98,16 +96,34 @@ The tool generates:
 - 2D position comparison plots for each layer
 - Organized by beam in a 3×2 grid layout
 
-### Machine-Specific Configuration
+### Configuration Files
 
-The tool automatically detects the treatment machine from the DICOM file and loads the corresponding configuration file:
+The tool loads two configuration sources from the same directory as `main.py`:
+
+- `config.yaml`: application-level output behavior (report style, debug options)
+- `scv_init_<machine>.txt`: machine-specific calibration and processing parameters
+
+The treatment machine is detected from the DICOM file and mapped to the corresponding machine config:
 
 - Machine **G1** → `scv_init_G1.txt`
 - Machine **G2** → `scv_init_G2.txt`
 
-Configuration files must be in the same directory as `main.py`.
-
 ## Configuration
+
+### config.yaml
+
+Application-level report and debug behavior is configured in `config.yaml`:
+
+```yaml
+app:
+  report_style: "summary"    # "summary" or "classic"
+  save_debug_csv: "off"      # "on" or "off"
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `report_style` | `summary` for the one-page report or `classic` for the detailed multi-page report |
+| `save_debug_csv` | `on` to save the first processed layer as `debug_data_beam_<N>_layer_<M>.csv`, `off` to disable debug CSV output |
 
 ### scv_init Files
 
@@ -152,6 +168,7 @@ Used by the MU correction module to apply physics corrections.
 ```
 ptn_checker/
 ├── main.py                    # CLI entry point and orchestration
+├── config.yaml               # App-level output/report configuration
 ├── LS_doserate.csv           # Dose rate lookup table by energy
 ├── scv_init_G1.txt           # Configuration for machine G1
 ├── scv_init_G2.txt           # Configuration for machine G2
@@ -183,7 +200,7 @@ ptn_checker/
 ## Workflow
 
 1. **Load DICOM File**: Parse the RTPLAN file to extract planned beam positions, layers, and MU values
-2. **Load Configuration**: Read machine-specific calibration parameters from scv_init file
+2. **Load Configuration**: Read app-level output settings from `app_config.txt` and machine-specific calibration from the matching `scv_init` file
 3. **Parse PlanRange**: Load PlanRange.txt to get per-layer energy and monitor range codes
 4. **Find PTN Files**: Recursively search for `.ptn` log files in the specified directory
 5. **Parse PTN Files**: For each layer, parse the corresponding PTN file with calibration
