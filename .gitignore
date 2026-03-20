@@ -54,3 +54,6 @@ venv/
 # IDE / tool metadata
 .omc/
 .worktrees/
+
+# Sisyphus planning
+.sisyphus/

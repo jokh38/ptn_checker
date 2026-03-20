@@ -117,7 +117,8 @@ def run_analysis(log_dir, dcm_file, output_dir, report_style='summary', report_n
                         layer_data,
                         log_data_raw,
                         save_to_csv=save_csv_for_this_layer,
-                        csv_filename=csv_filepath
+                        csv_filename=csv_filepath,
+                        config=config,
                     )
                     if save_csv_for_this_layer:
                         debug_csv_saved = True

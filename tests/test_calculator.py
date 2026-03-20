@@ -1,3 +1,5 @@
+import os
+import tempfile
 import unittest
 import numpy as np
 from src.calculator import calculate_differences_for_layer
@@ -76,6 +78,125 @@ class TestCalculator(unittest.TestCase):
         hist_fit_y = results.get("hist_fit_y", {})
         self.assertTrue(np.isfinite(hist_fit_x.get("mean", np.nan)))
         self.assertTrue(np.isfinite(hist_fit_y.get("mean", np.nan)))
+
+    def test_calculator_applies_settling_filter_by_default(self):
+        plan_layer = {
+            "time_axis_s": np.array([0.0, 1.0, 2.0, 3.0, 4.0]),
+            "trajectory_x_mm": np.array([0.0, 0.0, 0.0, 0.0, 0.0]),
+            "trajectory_y_mm": np.array([0.0, 0.0, 0.0, 0.0, 0.0]),
+        }
+        log_data = {
+            "time_ms": np.array([0.0, 0.2, 0.4, 0.6, 0.8]),
+            "x": np.array([-1.0, -0.8, -0.2, -0.1, -0.1]),
+            "y": np.array([-0.9, -0.7, -0.2, -0.1, -0.1]),
+        }
+        config = {
+            "SETTLING_THRESHOLD_MM": 0.5,
+            "SETTLING_WINDOW_SAMPLES": 5,
+            "SETTLING_CONSECUTIVE_SAMPLES": 2,
+        }
+
+        results = calculate_differences_for_layer(plan_layer, log_data, config=config)
+
+        np.testing.assert_array_equal(
+            results["is_settling"],
+            np.array([True, True, False, False, False]),
+        )
+        self.assertEqual(results["settling_index"], 2)
+        self.assertEqual(results["settling_samples_count"], 2)
+        self.assertEqual(results["settling_status"], "settled")
+        self.assertAlmostEqual(results["mean_diff_x"], np.mean([0.2, 0.1, 0.1]))
+        self.assertAlmostEqual(results["max_abs_diff_x"], 0.2)
+
+    def test_calculator_starts_after_reaching_initial_plan_position(self):
+        plan_layer = {
+            "time_axis_s": np.array([0.0, 1.0, 2.0, 3.0, 4.0]),
+            "trajectory_x_mm": np.array([5.0, 10.0, 15.0, 20.0, 25.0]),
+            "trajectory_y_mm": np.array([2.0, 2.0, 2.0, 2.0, 2.0]),
+        }
+        log_data = {
+            "time_ms": np.array([0.0, 0.2, 0.4, 0.6, 0.8]),
+            "x": np.array([-3.0, -2.0, 5.2, 15.0, 25.0]),
+            "y": np.array([-4.0, -2.5, 2.1, 2.0, 2.0]),
+        }
+        config = {
+            "SETTLING_THRESHOLD_MM": 0.5,
+            "SETTLING_WINDOW_SAMPLES": 5,
+            "SETTLING_CONSECUTIVE_SAMPLES": 1,
+        }
+
+        results = calculate_differences_for_layer(plan_layer, log_data, config=config)
+
+        np.testing.assert_array_equal(
+            results["is_settling"],
+            np.array([True, True, False, False, False]),
+        )
+        self.assertEqual(results["settling_index"], 2)
+        self.assertEqual(results["settling_status"], "settled")
+
+    def test_calculator_uses_time_cap_for_initial_position_search(self):
+        plan_layer = {
+            "time_axis_s": np.array([0.0, 1.0, 2.0, 3.0]),
+            "trajectory_x_mm": np.array([5.0, 6.0, 7.0, 8.0]),
+            "trajectory_y_mm": np.array([2.0, 2.0, 2.0, 2.0]),
+        }
+        log_data = {
+            "time_ms": np.array([0.0, 0.4, 0.8, 1.2]),
+            "x": np.array([-3.0, 5.1, 7.0, 8.0]),
+            "y": np.array([-3.0, 2.1, 2.0, 2.0]),
+        }
+        config = {
+            "SETTLING_THRESHOLD_MM": 0.5,
+            "SETTLING_WINDOW_SAMPLES": 1,
+            "SETTLING_CONSECUTIVE_SAMPLES": 1,
+        }
+
+        results = calculate_differences_for_layer(plan_layer, log_data, config=config)
+
+        np.testing.assert_array_equal(
+            results["is_settling"],
+            np.array([True, False, False, False]),
+        )
+        self.assertEqual(results["settling_index"], 1)
+        self.assertEqual(results["settling_status"], "settled")
+
+    def test_calculator_writes_settling_flag_to_csv(self):
+        plan_layer = {
+            "time_axis_s": np.array([0.0, 1.0, 2.0]),
+            "trajectory_x_mm": np.array([0.0, 0.0, 0.0]),
+            "trajectory_y_mm": np.array([0.0, 0.0, 0.0]),
+        }
+        log_data = {
+            "time_ms": np.array([0.0, 0.3, 0.6]),
+            "x": np.array([-0.8, -0.2, -0.1]),
+            "y": np.array([-0.8, -0.2, -0.1]),
+            "x_raw": np.array([1.0, 2.0, 3.0]),
+            "y_raw": np.array([4.0, 5.0, 6.0]),
+            "layer_num": np.array([7.0, 7.0, 7.0]),
+            "beam_on_off": np.array([50000.0, 50000.0, 50000.0]),
+        }
+        config = {
+            "SETTLING_THRESHOLD_MM": 0.5,
+            "SETTLING_WINDOW_SAMPLES": 3,
+            "SETTLING_CONSECUTIVE_SAMPLES": 2,
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            csv_path = os.path.join(tmpdir, "debug.csv")
+            calculate_differences_for_layer(
+                plan_layer,
+                log_data,
+                save_to_csv=True,
+                csv_filename=csv_path,
+                config=config,
+            )
+
+            with open(csv_path, "r", encoding="utf-8") as handle:
+                header = handle.readline().strip()
+                first_row = handle.readline().strip()
+
+        self.assertIn("is_settling", header)
+        self.assertTrue(first_row.endswith(",1.000000000000000000e+00"))
 
 if __name__ == '__main__':
     unittest.main()

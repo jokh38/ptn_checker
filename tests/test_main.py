@@ -12,6 +12,11 @@ class TestMain(unittest.TestCase):
     def setUp(self):
         """Set up a temporary directory with nested subdirectories and files."""
         self.test_dir = tempfile.mkdtemp()
+        self.config_path = os.path.join(os.getcwd(), "scv_init_G1.txt")
+        self.original_config_contents = None
+        if os.path.exists(self.config_path):
+            with open(self.config_path, "r", encoding="utf-8") as f:
+                self.original_config_contents = f.read()
         self.sub_dir = os.path.join(self.test_dir, "subdir1")
         self.nested_sub_dir = os.path.join(self.sub_dir, "subdir2")
         os.makedirs(self.nested_sub_dir)
@@ -39,15 +44,18 @@ class TestMain(unittest.TestCase):
         create_dummy_dcm_file(self.dcm_file, "G1")
 
         # Create dummy config files in the root (or where main.py expects them)
-        self.create_dummy_config_file("scv_init_G1.txt")
+        self.create_dummy_config_file(self.config_path)
 
 
     def tearDown(self):
         """Remove the temporary directory and its contents."""
         shutil.rmtree(self.test_dir)
-        # Clean up config file
-        if os.path.exists("scv_init_G1.txt"):
-            os.remove("scv_init_G1.txt")
+        if self.original_config_contents is None:
+            if os.path.exists(self.config_path):
+                os.remove(self.config_path)
+        else:
+            with open(self.config_path, "w", encoding="utf-8") as f:
+                f.write(self.original_config_contents)
 
 
     def create_dummy_config_file(self, filename):
@@ -57,6 +65,9 @@ class TestMain(unittest.TestCase):
             f.write("XPOSOFFSET\t0.0\n")
             f.write("YPOSOFFSET\t0.0\n")
             f.write("TIMEGAIN\t0.001\n")
+            f.write("SETTLING_THRESHOLD_MM\t0.5\n")
+            f.write("SETTLING_WINDOW_SAMPLES\t10\n")
+            f.write("SETTLING_CONSECUTIVE_SAMPLES\t3\n")
 
 
     def test_find_ptn_files(self):

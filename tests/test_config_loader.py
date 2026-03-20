@@ -17,6 +17,9 @@ class TestConfigLoader(unittest.TestCase):
             f.write("XPOSOFFSET\t-10\n")
             f.write("YPOSOFFSET\t20\n")
             f.write("TIMEGAIN\t0.001\n")
+            f.write("SETTLING_THRESHOLD_MM\t0.5\n")
+            f.write("SETTLING_WINDOW_SAMPLES\t10\n")
+            f.write("SETTLING_CONSECUTIVE_SAMPLES\t3\n")
             f.write("# This is a comment\n")
             f.write("SOME_OTHER_PARAM\tVALUE\n")
 
@@ -43,6 +46,15 @@ class TestConfigLoader(unittest.TestCase):
 
         self.assertIn('TIMEGAIN', config)
         self.assertEqual(config['TIMEGAIN'], 0.001)
+
+        self.assertIn('SETTLING_THRESHOLD_MM', config)
+        self.assertEqual(config['SETTLING_THRESHOLD_MM'], 0.5)
+
+        self.assertIn('SETTLING_WINDOW_SAMPLES', config)
+        self.assertEqual(config['SETTLING_WINDOW_SAMPLES'], 10.0)
+
+        self.assertIn('SETTLING_CONSECUTIVE_SAMPLES', config)
+        self.assertEqual(config['SETTLING_CONSECUTIVE_SAMPLES'], 3.0)
 
         self.assertNotIn('SOME_OTHER_PARAM', config) # Should only parse specific keys
         self.assertNotIn('# This is a comment', config)

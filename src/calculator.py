@@ -8,6 +8,9 @@ logger = logging.getLogger(__name__)
 # Histogram parameters for position difference analysis
 HISTOGRAM_RANGE_MM = (-5, 5)  # histogram range in mm
 HISTOGRAM_BIN_STEP = 0.01  # histogram bin width in mm
+DEFAULT_SETTLING_THRESHOLD_MM = 0.5
+DEFAULT_SETTLING_CONSECUTIVE_SAMPLES = 10
+DEFAULT_SETTLING_SEARCH_WINDOW_S = 0.001
 
 
 def gaussian(x, amplitude, mean, stddev):
@@ -15,7 +18,61 @@ def gaussian(x, amplitude, mean, stddev):
     return amplitude * np.exp(-((x - mean) / stddev)**2 / 2)
 
 
-def calculate_differences_for_layer(plan_layer, log_data, save_to_csv=False, csv_filename="debug_layer_data.csv"):
+def _detect_settling(
+    log_x,
+    log_y,
+    log_time_s,
+    target_x,
+    target_y,
+    threshold,
+    consecutive,
+    window_s=None,
+):
+    """Find the first stable arrival near the layer's starting plan position."""
+    log_x = np.asarray(log_x, dtype=float)
+    log_y = np.asarray(log_y, dtype=float)
+    log_time_s = np.asarray(log_time_s, dtype=float)
+
+    if log_x.size == 0 or log_y.size == 0 or log_time_s.size == 0:
+        return 0, "insufficient_data"
+
+    if window_s is None:
+        window_s = DEFAULT_SETTLING_SEARCH_WINDOW_S
+    search_mask = log_time_s <= float(window_s)
+    search_length = int(np.sum(search_mask))
+    search_length = min(search_length, log_x.size, log_y.size)
+    if search_length < int(consecutive):
+        return 0, "insufficient_data"
+
+    within_threshold = (
+        np.abs(log_x[:search_length] - float(target_x)) < float(threshold)
+    ) & (
+        np.abs(log_y[:search_length] - float(target_y)) < float(threshold)
+    )
+    run_length = int(consecutive)
+    for start in range(0, search_length - run_length + 1):
+        if np.all(within_threshold[start:start + run_length]):
+            return start, "settled"
+    return search_length, "never_settled"
+
+
+def _calculate_axis_stats(diff):
+    return {
+        "mean": np.mean(diff),
+        "std": np.std(diff),
+        "rmse": np.sqrt(np.mean(diff ** 2)),
+        "max_abs": np.max(np.abs(diff)),
+        "p95_abs": np.percentile(np.abs(diff), 95),
+    }
+
+
+def calculate_differences_for_layer(
+    plan_layer,
+    log_data,
+    save_to_csv=False,
+    csv_filename="debug_layer_data.csv",
+    config=None,
+):
     """
     Calculates the differences between planned and actual data for a single layer.
 
@@ -24,6 +81,7 @@ def calculate_differences_for_layer(plan_layer, log_data, save_to_csv=False, csv
         log_data: Parsed data from a PTN log file for the corresponding layer.
         save_to_csv (bool): If True, saves the interpolated plan and log data to a CSV file.
         csv_filename (str): The name of the CSV file to save.
+        config (dict | None): Parsed analysis configuration.
 
     Returns:
         A dictionary containing the analysis results for the layer.
@@ -56,6 +114,24 @@ def calculate_differences_for_layer(plan_layer, log_data, save_to_csv=False, csv
     diff_x = interp_plan_x - log_x
     diff_y = interp_plan_y - log_y
 
+    config = config or {}
+    settling_index, settling_status = _detect_settling(
+        log_x,
+        log_y,
+        log_time_s,
+        target_x=plan_x[0],
+        target_y=plan_y[0],
+        threshold=config.get("SETTLING_THRESHOLD_MM", DEFAULT_SETTLING_THRESHOLD_MM),
+        consecutive=config.get(
+            "SETTLING_CONSECUTIVE_SAMPLES",
+            DEFAULT_SETTLING_CONSECUTIVE_SAMPLES,
+        ),
+    )
+    is_settling = np.arange(len(diff_x)) < settling_index
+    settled_mask = ~is_settling
+    stats_diff_x = diff_x[settled_mask] if np.any(settled_mask) else diff_x
+    stats_diff_y = diff_y[settled_mask] if np.any(settled_mask) else diff_y
+
     plan_end = float(plan_time_s[-1]) if len(plan_time_s) else 0.0
     log_end = float(log_time_s[-1]) if len(log_time_s) else 0.0
     max_end = max(plan_end, log_end)
@@ -75,17 +151,22 @@ def calculate_differences_for_layer(plan_layer, log_data, save_to_csv=False, csv
             log_data['x_raw'],
             log_data['y_raw'],
             log_data['layer_num'],
-            log_data['beam_on_off']
+            log_data['beam_on_off'],
+            is_settling.astype(int),
         ))
-        header = "log_time_s,interp_plan_x,interp_plan_y,log_x,log_y,x_raw,y_raw,layer_num,beam_on_off"
+        header = "log_time_s,interp_plan_x,interp_plan_y,log_x,log_y,x_raw,y_raw,layer_num,beam_on_off,is_settling"
         np.savetxt(csv_filename, data_to_save, delimiter=",", header=header, comments="")
 
     results['diff_x'] = diff_x
     results['diff_y'] = diff_y
+    results['is_settling'] = is_settling
+    results['settling_index'] = int(settling_index)
+    results['settling_samples_count'] = int(np.sum(is_settling))
+    results['settling_status'] = settling_status
 
     bins = np.arange(HISTOGRAM_RANGE_MM[0], HISTOGRAM_RANGE_MM[1] + HISTOGRAM_BIN_STEP, HISTOGRAM_BIN_STEP)
-    hist_x, _ = np.histogram(diff_x, bins=bins, density=True)
-    hist_y, _ = np.histogram(diff_y, bins=bins, density=True)
+    hist_x, _ = np.histogram(stats_diff_x, bins=bins, density=True)
+    hist_y, _ = np.histogram(stats_diff_y, bins=bins, density=True)
     bin_centers = (bins[:-1] + bins[1:]) / 2
 
     try:
@@ -118,16 +199,18 @@ def calculate_differences_for_layer(plan_layer, log_data, save_to_csv=False, csv
     # Add missing keys expected by report generator
     results['plan_positions'] = np.column_stack((interp_plan_x, interp_plan_y))
     results['log_positions'] = np.column_stack((log_x, log_y))
-    results['mean_diff_x'] = np.mean(diff_x)
-    results['mean_diff_y'] = np.mean(diff_y)
-    results['std_diff_x'] = np.std(diff_x)
-    results['std_diff_y'] = np.std(diff_y)
-    results['rmse_x'] = np.sqrt(np.mean(diff_x**2))
-    results['rmse_y'] = np.sqrt(np.mean(diff_y**2))
-    results['max_abs_diff_x'] = np.max(np.abs(diff_x))
-    results['max_abs_diff_y'] = np.max(np.abs(diff_y))
-    results['p95_abs_diff_x'] = np.percentile(np.abs(diff_x), 95)
-    results['p95_abs_diff_y'] = np.percentile(np.abs(diff_y), 95)
+    stats_x = _calculate_axis_stats(stats_diff_x)
+    stats_y = _calculate_axis_stats(stats_diff_y)
+    results['mean_diff_x'] = stats_x['mean']
+    results['mean_diff_y'] = stats_y['mean']
+    results['std_diff_x'] = stats_x['std']
+    results['std_diff_y'] = stats_y['std']
+    results['rmse_x'] = stats_x['rmse']
+    results['rmse_y'] = stats_y['rmse']
+    results['max_abs_diff_x'] = stats_x['max_abs']
+    results['max_abs_diff_y'] = stats_y['max_abs']
+    results['p95_abs_diff_x'] = stats_x['p95_abs']
+    results['p95_abs_diff_y'] = stats_y['p95_abs']
     results['time_overlap_fraction'] = overlap
 
     return results
