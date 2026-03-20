@@ -66,6 +66,29 @@ def _calculate_axis_stats(diff):
     }
 
 
+def _get_optional_series(data, key, length, warning_context):
+    if key not in data:
+        logger.warning(
+            "Missing optional %s key '%s'; filling debug CSV values with zeros",
+            warning_context,
+            key,
+        )
+        return np.zeros(length, dtype=float)
+
+    values = np.asarray(data[key], dtype=float)
+    if len(values) != length:
+        logger.warning(
+            "Unexpected %s key '%s' length %s (expected %s); filling debug CSV values with zeros",
+            warning_context,
+            key,
+            len(values),
+            length,
+        )
+        return np.zeros(length, dtype=float)
+
+    return values
+
+
 def calculate_differences_for_layer(
     plan_layer,
     log_data,
@@ -110,6 +133,23 @@ def calculate_differences_for_layer(
 
     interp_plan_x = np.interp(log_time_s, plan_time_s, plan_x)
     interp_plan_y = np.interp(log_time_s, plan_time_s, plan_y)
+    plan_cumulative_mu = _get_optional_series(
+        plan_layer,
+        "cumulative_mu",
+        len(plan_time_s),
+        "plan_layer",
+    )
+    interp_plan_mu = np.interp(log_time_s, plan_time_s, plan_cumulative_mu)
+    log_mu = _get_optional_series(log_data, "mu", len(log_time_s), "log_data")
+
+    dx = np.diff(log_x, prepend=log_x[0])
+    dy = np.diff(log_y, prepend=log_y[0])
+    dt = np.diff(log_time_s, prepend=log_time_s[0])
+    log_velocity_mm_s = np.zeros_like(dt)
+    nonzero_dt = dt > 0
+    log_velocity_mm_s[nonzero_dt] = (
+        np.sqrt(dx[nonzero_dt] ** 2 + dy[nonzero_dt] ** 2) / dt[nonzero_dt]
+    )
 
     diff_x = interp_plan_x - log_x
     diff_y = interp_plan_y - log_y
@@ -153,8 +193,14 @@ def calculate_differences_for_layer(
             log_data['layer_num'],
             log_data['beam_on_off'],
             is_settling.astype(int),
+            log_velocity_mm_s,
+            interp_plan_mu,
+            log_mu,
         ))
-        header = "log_time_s,interp_plan_x,interp_plan_y,log_x,log_y,x_raw,y_raw,layer_num,beam_on_off,is_settling"
+        header = (
+            "log_time_s,interp_plan_x,interp_plan_y,log_x,log_y,x_raw,y_raw,"
+            "layer_num,beam_on_off,is_settling,log_velocity_mm_s,interp_plan_mu,log_mu"
+        )
         np.savetxt(csv_filename, data_to_save, delimiter=",", header=header, comments="")
 
     results['diff_x'] = diff_x

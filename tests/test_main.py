@@ -162,6 +162,87 @@ class TestMain(unittest.TestCase):
             run_analysis(self.test_dir, self.dcm_file, output_dir)
         self.assertTrue(any(name.endswith(".csv") for name in os.listdir(output_dir)))
 
+    def test_run_analysis_writes_debug_csv_for_each_layer_when_enabled(self):
+        output_dir = os.path.join(self.test_dir, "output_debug_all_layers")
+        os.makedirs(output_dir)
+
+        self.create_dummy_yaml_config_file(self.yaml_config_path, save_debug_csv="on")
+
+        plan_data = {
+            "patient_id": "123456",
+            "patient_name": "Test^Patient",
+            "machine_name": "G1",
+            "beams": {
+                1: {
+                    "name": "Beam 1",
+                    "layers": {
+                        0: {"time_axis_s": np.array([0.0]), "trajectory_x_mm": np.array([0.0]), "trajectory_y_mm": np.array([0.0])},
+                        1: {"time_axis_s": np.array([0.0]), "trajectory_x_mm": np.array([1.0]), "trajectory_y_mm": np.array([1.0])},
+                    },
+                }
+            },
+        }
+        fake_ptn_files = [
+            os.path.join(self.test_dir, "layer0.ptn"),
+            os.path.join(self.test_dir, "layer1.ptn"),
+        ]
+        csv_calls = []
+
+        def fake_calculate_differences_for_layer(
+            plan_layer,
+            log_data,
+            save_to_csv=False,
+            csv_filename="",
+            config=None,
+        ):
+            if save_to_csv:
+                csv_calls.append(csv_filename)
+                with open(csv_filename, "w", encoding="utf-8") as handle:
+                    handle.write("header\n")
+            return {
+                "diff_x": np.array([0.0]),
+                "diff_y": np.array([0.0]),
+                "mean_diff_x": 0.0,
+                "mean_diff_y": 0.0,
+                "std_diff_x": 0.0,
+                "std_diff_y": 0.0,
+                "rmse_x": 0.0,
+                "rmse_y": 0.0,
+                "max_abs_diff_x": 0.0,
+                "max_abs_diff_y": 0.0,
+                "p95_abs_diff_x": 0.0,
+                "p95_abs_diff_y": 0.0,
+                "plan_positions": np.array([[0.0, 0.0]]),
+                "log_positions": np.array([[0.0, 0.0]]),
+                "hist_fit_x": {"amplitude": 0.0, "mean": 0.0, "stddev": 0.0},
+                "hist_fit_y": {"amplitude": 0.0, "mean": 0.0, "stddev": 0.0},
+                "time_overlap_fraction": 1.0,
+                "is_settling": np.array([False]),
+                "settling_index": 0,
+                "settling_samples_count": 0,
+                "settling_status": "settled",
+            }
+
+        with mock.patch.object(main, "parse_dcm_file", return_value=plan_data), mock.patch.object(
+            main, "find_ptn_files", return_value=fake_ptn_files
+        ), mock.patch.object(
+            main, "parse_ptn_file", return_value={"time_ms": np.array([0.0]), "x": np.array([0.0]), "y": np.array([0.0])}
+        ), mock.patch.object(
+            main, "parse_planrange_for_directory", return_value={}
+        ), mock.patch.object(
+            main, "calculate_differences_for_layer", side_effect=fake_calculate_differences_for_layer
+        ), mock.patch.object(main, "generate_report"):
+            run_analysis(self.test_dir, self.dcm_file, output_dir)
+
+        self.assertEqual(2, len(csv_calls))
+        self.assertCountEqual(
+            [
+                os.path.join(output_dir, "debug_data_beam_1_layer_0.csv"),
+                os.path.join(output_dir, "debug_data_beam_1_layer_1.csv"),
+            ],
+            csv_calls,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
