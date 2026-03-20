@@ -87,6 +87,7 @@ MU_COUNT_DOSE_INTERPOLATOR = ConstExtrapPchipInterpolator(
 def get_monitor_range_factor(monitor_range_code: int) -> float:
     """Return the monitor range scaling factor for the given code."""
     factors = {
+        1: 160.0 / 470.0,
         2: 1.0,
         3: 2.978723404255319,
         4: 8.936170212765957,
