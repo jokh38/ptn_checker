@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 from src.report_generator import (
     generate_report,
     _generate_error_bar_plot_for_beam,
+    _generate_summary_page,
+    _draw_layer_heatmap,
     _generate_per_layer_position_plot,
     _save_plots_to_pdf_grid,
     _layer_passes,
@@ -172,6 +174,46 @@ class TestReportGenerator(unittest.TestCase):
         expected_pdf_path = os.path.join(self.output_dir, "analysis_report.pdf")
         generate_report(report_data, self.output_dir)
         self.assertTrue(os.path.exists(expected_pdf_path))
+
+    def test_draw_layer_heatmap_renders_all_layers(self):
+        fig, ax = plt.subplots(figsize=(6, 4))
+        heatmap_values = np.array([
+            [0.1, 0.2, 0.3, 0.4],
+            [0.5, 0.6, 0.7, 0.8],
+            [0.9, 1.0, 1.1, 1.2],
+        ])
+        layer_labels = ["1", "2", "3", "4"]
+        metric_labels = ["|mu_x|", "|mu_y|", "max"]
+        flag_rows = {
+            "Fail": [False, True, False, False],
+            "Fallback": [False, False, True, False],
+        }
+
+        image, flag_image = _draw_layer_heatmap(
+            fig,
+            ax,
+            heatmap_values,
+            layer_labels,
+            metric_labels,
+            flag_rows=flag_rows,
+        )
+
+        self.assertEqual((3, 4), image.get_array().shape)
+        self.assertEqual((2, 4), flag_image.get_array().shape)
+        self.assertEqual("Layer Heatmap", ax.get_title())
+        plt.close(fig)
+
+    def test_generate_summary_page_uses_trend_and_heatmap_panels(self):
+        beam_data = self.report_data["Beam 1"]
+
+        fig = _generate_summary_page("Beam 1", beam_data)
+        axes_by_title = {ax.get_title(): ax for ax in fig.axes if ax.get_title()}
+
+        self.assertIn("Layer Trend", axes_by_title)
+        self.assertIn("Layer Heatmap", axes_by_title)
+        self.assertGreaterEqual(len(axes_by_title["Layer Trend"].get_yticks()), 2)
+        self.assertEqual(1, len(axes_by_title["Layer Heatmap"].images))
+        plt.close(fig)
 
     def test_layer_passes_uses_filtered_metrics_when_requested(self):
         results = {

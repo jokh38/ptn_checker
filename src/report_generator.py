@@ -445,6 +445,83 @@ def _draw_layer_table(fig, ax, rows, values, flags, col_labels, colored_cols, cm
     cbar.set_label("Colormap: |mean|, std  (0 \u2013 3 mm)", fontsize=6)
 
 
+def _draw_layer_heatmap(
+    fig,
+    ax,
+    heatmap_values,
+    layer_labels,
+    metric_labels,
+    flag_rows=None,
+    flag_ax=None,
+    cbar_ax=None,
+):
+    """Draw a compact all-layer heatmap with optional binary flag rows."""
+    heatmap_values = np.asarray(heatmap_values, dtype=float)
+    num_metrics, num_layers = heatmap_values.shape if heatmap_values.size else (0, 0)
+
+    cmap = plt.cm.RdYlGn_r
+    norm = Normalize(vmin=0, vmax=THRESHOLDS["max_abs_diff_mm"])
+    image = ax.imshow(
+        heatmap_values,
+        aspect="auto",
+        interpolation="nearest",
+        cmap=cmap,
+        norm=norm,
+        origin="upper",
+    )
+    ax.set_title("Layer Heatmap", fontsize=9, fontweight="bold", pad=6)
+    ax.set_yticks(np.arange(num_metrics))
+    ax.set_yticklabels(metric_labels, fontsize=6)
+    ax.set_xticks(np.arange(num_layers))
+
+    tick_positions = np.arange(num_layers)
+    if num_layers > 25:
+        tick_step = max(1, int(np.ceil(num_layers / 25)))
+        tick_positions = np.arange(0, num_layers, tick_step)
+        ax.set_xticks(tick_positions)
+        ax.set_xticklabels([layer_labels[i] for i in tick_positions], fontsize=5)
+    else:
+        ax.set_xticklabels(layer_labels, fontsize=6)
+
+    ax.set_xlabel("Layer", fontsize=7)
+    ax.tick_params(axis="x", rotation=90, pad=1)
+
+    cbar = fig.colorbar(
+        image,
+        cax=cbar_ax,
+        ax=None if cbar_ax is not None else ax,
+        orientation="horizontal",
+        fraction=0.08 if cbar_ax is None else None,
+        pad=0.16 if cbar_ax is None else None,
+    )
+    cbar.ax.tick_params(labelsize=5)
+    cbar.set_label("Error severity (mm)", fontsize=6)
+
+    flag_image = None
+    if flag_rows:
+        row_names = list(flag_rows.keys())
+        flag_values = np.asarray([flag_rows[name] for name in row_names], dtype=float)
+        if flag_ax is None:
+            flag_ax = ax.inset_axes([0.0, -0.30, 1.0, 0.16])
+        flag_image = flag_ax.imshow(
+            flag_values,
+            aspect="auto",
+            interpolation="nearest",
+            cmap=plt.cm.Reds,
+            vmin=0,
+            vmax=1,
+            origin="upper",
+        )
+        flag_ax.set_yticks(np.arange(len(row_names)))
+        flag_ax.set_yticklabels(row_names, fontsize=5)
+        flag_ax.set_xticks(tick_positions)
+        flag_ax.set_xticklabels([])
+        flag_ax.tick_params(axis="x", length=0, pad=0)
+        flag_ax.set_xlabel("Flags", fontsize=6, labelpad=1)
+
+    return image, flag_image
+
+
 def _generate_summary_page(
     beam_name,
     beam_data,
@@ -458,12 +535,11 @@ def _generate_summary_page(
     Layout:
         Title bar (top): large beam name + verdict badge (PASS/CONDITIONAL/FAIL)
         Info row: Patient ID, Patient Name, Date, Layer count
-        Metrics table: 3-row table (X/Y/Radial) with Mean, Std, RMSE, Max, P95 + Similarity
-        2x2 plot grid:
-            Top-left: Combined X+Y error bar plot with pass/fail coloring
-            Top-right: Layer heatmap (layers x 4 metrics) with RdYlGn_r colormap
-            Bottom-left: Filter transparency panel (sample funnel)
-            Bottom-right: (continuation of layer table)
+        Summary metrics row: compact beam-level statistics
+        Middle split:
+            Left: vertically long trend plot across layers
+            Right: all-layer heatmap
+        Bottom: warnings and compact worst-layer summary
     """
     from datetime import date as _date
 
@@ -595,7 +671,7 @@ def _generate_summary_page(
     thr_mean = THRESHOLDS["mean_diff_mm"]
     thr_std = THRESHOLDS["std_diff_mm"]
     thr_max = THRESHOLDS["max_abs_diff_mm"]
-    ax_metrics = fig.add_axes([0.08, 0.835, 0.84, 0.09])
+    ax_metrics = fig.add_axes([0.06, 0.79, 0.88, 0.10])
     ax_metrics.axis("off")
     col_labels = [
         "",
@@ -610,26 +686,30 @@ def _generate_summary_page(
              f"{global_max_x:.3f}", f"{global_p95_x:.3f}", similarity_str]
     row_y = ["Y", f"{global_mean_y:+.3f}", f"{global_std_y:.3f}", f"{global_rmse_y:.3f}",
              f"{global_max_y:.3f}", f"{global_p95_y:.3f}", ""]
-    row_r = ["R\u2082\u2084", f"{global_radial_mean:.3f}", "", f"{global_radial_rmse:.3f}",
+    row_r = ["Radial", f"{global_radial_mean:.3f}", "", f"{global_radial_rmse:.3f}",
              f"{global_radial_max:.3f}", f"{global_radial_p95:.3f}", ""]
     metrics_table = ax_metrics.table(
         cellText=[row_x, row_y, row_r], colLabels=col_labels,
         loc="center", cellLoc="center",
+        colWidths=[0.12, 0.15, 0.15, 0.14, 0.14, 0.14, 0.16],
     )
     metrics_table.auto_set_font_size(False)
-    metrics_table.set_fontsize(7)
-    metrics_table.scale(1.0, 1.3)
+    metrics_table.set_fontsize(6.5)
+    metrics_table.scale(1.0, 1.18)
     # Style header row
     for j in range(len(col_labels)):
         metrics_table[0, j].set_facecolor("#34495e")
-        metrics_table[0, j].set_text_props(color="white", fontweight="bold")
+        metrics_table[0, j].set_text_props(color="white", fontweight="bold", va="center")
     # Style axis label cells
     metrics_table[1, 0].set_facecolor("#3498db")
-    metrics_table[1, 0].set_text_props(color="white", fontweight="bold")
+    metrics_table[1, 0].set_text_props(color="white", fontweight="bold", va="center")
     metrics_table[2, 0].set_facecolor("#e67e22")
-    metrics_table[2, 0].set_text_props(color="white", fontweight="bold")
+    metrics_table[2, 0].set_text_props(color="white", fontweight="bold", va="center")
     metrics_table[3, 0].set_facecolor("#8e44ad")
-    metrics_table[3, 0].set_text_props(color="white", fontweight="bold")
+    metrics_table[3, 0].set_text_props(color="white", fontweight="bold", va="center")
+    for (_, _), cell in metrics_table.get_celld().items():
+        cell.set_text_props(va="center")
+        cell.PAD = 0.02
 
     # Color-code metric cells by threshold proximity (green/yellow/red)
     _threshold_checks = {
@@ -653,90 +733,139 @@ def _generate_summary_page(
                 cell_bg = "#fadbd8"  # red
             metrics_table[row_i, col_j].set_facecolor(cell_bg)
 
-    # Layout: left column (2 plots stacked), right column (full-height colored layer table)
-    gs = fig.add_gridspec(
-        2, 2,
-        left=0.08, right=0.97,
-        bottom=0.04, top=0.81,
-        hspace=0.30, wspace=0.25,
-        width_ratios=[1, 1.2],
+    middle_gs = fig.add_gridspec(
+        1, 2,
+        left=0.06, right=0.97,
+        bottom=0.27, top=0.75,
+        wspace=0.16,
+        width_ratios=[0.9, 1.3],
     )
 
-    # --- Left-top: Error bar plot (X and Y combined) with pass/fail coloring ---
-    ax_err = fig.add_subplot(gs[0, 0])
+    # --- Middle-left: Vertically long layer trend plot ---
+    ax_err = fig.add_subplot(middle_gs[0, 0])
     layer_idx = np.arange(1, num_layers + 1)
+    radial_rmse = np.sqrt(np.array(rmse_x_all) ** 2 + np.array(rmse_y_all) ** 2)
+    worst_axis_error = np.maximum(np.array(max_x_all), np.array(max_y_all))
 
-    # Plot lines first (thin, behind markers)
-    ax_err.plot(layer_idx, mean_x_all, "-", linewidth=0.5, color="#3498db", alpha=0.5)
-    ax_err.plot(layer_idx, mean_y_all, "-", linewidth=0.5, color="#e67e22", alpha=0.5)
-
-    # Color-code markers by pass/fail
-    marker_colors = ["#2ecc71" if p else "#e74c3c" for p in pass_flags]
-    for i in range(num_layers):
-        kw = dict(capsize=2, markersize=3, linewidth=0.0, color=marker_colors[i])
-        label_x = "X" if i == 0 else None
-        label_y = "Y" if i == 0 else None
-        ax_err.errorbar(layer_idx[i], mean_x_all[i], yerr=std_x_all[i],
-                        fmt="o", label=label_x, **kw)
-        ax_err.errorbar(layer_idx[i], mean_y_all[i], yerr=std_y_all[i],
-                        fmt="s", label=label_y, **kw)
-
-    tol = THRESHOLDS["mean_diff_mm"]
-    ax_err.axhspan(-tol, tol, alpha=0.12, color="green", label=f"\u00b1{tol} mm tol.")
+    ax_err.plot(layer_idx, radial_rmse, "-", linewidth=1.0, color="#2c3e50", label="Radial RMSE")
+    ax_err.scatter(
+        layer_idx,
+        radial_rmse,
+        c=["#2ecc71" if p else "#e74c3c" for p in pass_flags],
+        s=16,
+        zorder=3,
+    )
+    ax_err.plot(
+        layer_idx,
+        worst_axis_error,
+        "--",
+        linewidth=0.9,
+        color="#e67e22",
+        label="Worst axis max",
+    )
+    ax_err.axhspan(
+        0,
+        THRESHOLDS["max_abs_diff_mm"],
+        alpha=0.10,
+        color="#2ecc71",
+        label=f"\u2264 {THRESHOLDS['max_abs_diff_mm']} mm target",
+    )
     ax_err.set_xlabel("Layer", fontsize=7)
-    ax_err.set_ylabel("Mean diff (mm)", fontsize=7)
-    ax_err.set_title("Position Error by Layer", fontsize=8)
-    ax_err.legend(fontsize=5, loc="upper right")
+    ax_err.set_ylabel("Error (mm)", fontsize=7)
+    ax_err.set_title("Layer Trend", fontsize=9)
     ax_err.tick_params(labelsize=6)
     ax_err.grid(True, alpha=0.3)
-    # Rotate tick labels for dense beams
-    if num_layers > 50:
+    if num_layers > 25:
         ax_err.tick_params(axis="x", rotation=90, labelsize=4)
+    ax_err.legend(fontsize=5, loc="upper left")
 
-    # --- Left-bottom: Filter Transparency Panel ---
-    ax_filter = fig.add_subplot(gs[1, 0])
+    # --- Middle-right: All-layer heatmap ---
+    right_gs = middle_gs[0, 1].subgridspec(
+        3, 1,
+        height_ratios=[0.78, 0.13, 0.09],
+        hspace=0.18,
+    )
+    ax_heatmap = fig.add_subplot(right_gs[0, 0])
+    ax_heatmap_flags = fig.add_subplot(right_gs[1, 0])
+    ax_heatmap_cbar = fig.add_subplot(right_gs[2, 0])
+    heatmap_values = np.array([
+        np.abs(mean_x_all),
+        np.abs(mean_y_all),
+        std_x_all,
+        std_y_all,
+        max_x_all,
+        max_y_all,
+    ])
+    flag_rows = {}
+    fallback_flags = []
+    never_settled_flags = []
+    low_overlap_flags = []
+    for layer in layers_data:
+        r = layer.get("results", {})
+        fallback_flags.append(1 if r.get("filtered_stats_fallback_to_raw", False) else 0)
+        never_settled_flags.append(1 if r.get("settling_status") == "never_settled" else 0)
+        overlap = r.get("time_overlap_fraction")
+        low_overlap_flags.append(1 if overlap is not None and overlap < 0.95 else 0)
+    if any(not flag for flag in [False] + fallback_flags):
+        flag_rows["Fallback"] = fallback_flags
+    if any(not flag for flag in [False] + never_settled_flags):
+        flag_rows["Settle"] = never_settled_flags
+    if any(not flag for flag in [False] + low_overlap_flags):
+        flag_rows["Overlap"] = low_overlap_flags
+    if any(pass_flag is False for pass_flag in pass_flags):
+        flag_rows["Fail"] = [0 if passed else 1 for passed in pass_flags]
+
+    _draw_layer_heatmap(
+        fig,
+        ax_heatmap,
+        heatmap_values,
+        layer_labels,
+        ["|mu_x|", "|mu_y|", "std_x", "std_y", "max_x", "max_y"],
+        flag_rows=flag_rows if flag_rows else None,
+        flag_ax=ax_heatmap_flags,
+        cbar_ax=ax_heatmap_cbar,
+    )
+
+    # --- Bottom: Warnings and worst-layer summary ---
+    bottom_gs = fig.add_gridspec(
+        1, 2,
+        left=0.06, right=0.97,
+        bottom=0.05, top=0.22,
+        wspace=0.10,
+        width_ratios=[1.2, 1.0],
+    )
+    ax_filter = fig.add_subplot(bottom_gs[0, 0])
     ax_filter.axis("off")
     _draw_filter_panel(ax_filter, layers_data, report_mode)
 
-    # --- Right (full height): Colored layer metrics table (top-aligned) ---
-    ax_layer_tbl = fig.add_subplot(gs[:, 1])
-    ax_layer_tbl.axis("off")
+    ax_worst = fig.add_subplot(bottom_gs[0, 1])
+    ax_worst.axis("off")
 
-    cmap = plt.cm.RdYlGn_r
-    norm = Normalize(vmin=0, vmax=THRESHOLDS["max_abs_diff_mm"])
-
-    # Build full table data
-    layer_col_labels = ["Lyr", "|μ_x|", "|μ_y|", "σ_x", "σ_y", "max_x", "max_y"]
-    colored_col_indices = {1, 2, 3, 4}  # columns that get colormap coloring
-    table_rows = []
-    table_values = []  # raw float values for coloring
-    for i in range(num_layers):
-        abs_mx = abs(mean_x_all[i])
-        abs_my = abs(mean_y_all[i])
-        sx = std_x_all[i]
-        sy = std_y_all[i]
-        mx = max_x_all[i]
-        my = max_y_all[i]
-        table_rows.append([
-            layer_labels[i],
-            f"{abs_mx:.2f}", f"{abs_my:.2f}",
-            f"{sx:.2f}", f"{sy:.2f}",
-            f"{mx:.2f}", f"{my:.2f}",
-        ])
-        table_values.append([0, abs_mx, abs_my, sx, sy, mx, my])
-
-    if num_layers > 0:
-        ax_layer_tbl.set_title(
-            "Layer Metrics (mm)", fontsize=9, fontweight="bold", pad=8,
+    worst_order = np.argsort(worst_axis_error)[::-1][: min(5, num_layers)]
+    if len(worst_order) > 0:
+        worst_lines = [
+            f"L{layer_labels[idx]}: max {worst_axis_error[idx]:.2f} mm, radial {radial_rmse[idx]:.2f} mm"
+            for idx in worst_order
+        ]
+        ax_worst.text(
+            0.02,
+            0.94,
+            "Worst Layers",
+            ha="left",
+            va="top",
+            fontsize=8,
+            fontweight="bold",
+            transform=ax_worst.transAxes,
         )
-        _draw_layer_table(
-            fig, ax_layer_tbl, table_rows, table_values, pass_flags,
-            layer_col_labels, colored_col_indices, cmap, norm,
-        )
-    else:
-        ax_layer_tbl.text(
-            0.5, 0.5, "No layer data",
-            ha="center", va="center", fontsize=10, transform=ax_layer_tbl.transAxes,
+        ax_worst.text(
+            0.02,
+            0.84,
+            "\n".join(worst_lines),
+            ha="left",
+            va="top",
+            fontsize=6.5,
+            family="monospace",
+            transform=ax_worst.transAxes,
         )
 
     return fig
