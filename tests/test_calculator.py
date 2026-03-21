@@ -289,6 +289,45 @@ class TestCalculator(unittest.TestCase):
         self.assertAlmostEqual(results["max_abs_diff_x"], 15.0)
         self.assertAlmostEqual(results["filtered_max_abs_diff_x"], 0.0)
 
+    def test_calculator_excludes_post_minimal_dose_boundary_window_from_filtered_stats(self):
+        plan_layer = {
+            "time_axis_s": np.array([0.0, 1.0, 2.0, 3.0]),
+            "trajectory_x_mm": np.array([0.0, 20.0, 20.0, 30.0]),
+            "trajectory_y_mm": np.array([0.0, 0.0, 0.0, 0.0]),
+            "mu": np.array([0.01, 0.000452, 0.034, 0.05]),
+            "spot_is_transit_min_dose": np.array([False, True, False, False]),
+            "spot_scan_speed_mm_s": np.array([0.0, 20000.0, 200.0, 1000.0]),
+        }
+        log_data = {
+            "time_ms": np.array([0.0, 200.0, 800.0, 1000.05, 1000.5, 1001.2, 2000.0, 3000.0]),
+            "x": np.array([0.0, 4.0, 16.0, 30.0, 24.0, 20.0, 20.0, 30.0]),
+            "y": np.zeros(8),
+        }
+        config = {
+            "SETTLING_THRESHOLD_MM": 100.0,
+            "SETTLING_CONSECUTIVE_SAMPLES": 1,
+            "ZERO_DOSE_FILTER_ENABLED": True,
+            "ZERO_DOSE_BOUNDARY_HOLDOFF_S": 0.0001,
+            "ZERO_DOSE_POST_MINIMAL_DOSE_BOUNDARY_S": 0.001,
+        }
+
+        results = calculate_differences_for_layer(plan_layer, log_data, config=config)
+
+        np.testing.assert_array_equal(
+            results["assigned_spot_index"],
+            np.array([0, 1, 1, 2, 2, 2, 2, 3]),
+        )
+        np.testing.assert_array_equal(
+            results["sample_is_boundary_carryover"],
+            np.array([False, False, False, True, True, False, False, False]),
+        )
+        np.testing.assert_array_equal(
+            results["sample_is_included_filtered_stats"],
+            np.array([True, False, False, False, False, True, True, True]),
+        )
+        self.assertAlmostEqual(results["max_abs_diff_x"], 10.0)
+        self.assertAlmostEqual(results["filtered_max_abs_diff_x"], 0.0)
+
     def test_calculator_falls_back_to_raw_when_filtered_mask_is_empty(self):
         plan_layer = {
             "time_axis_s": np.array([0.0, 1.0]),

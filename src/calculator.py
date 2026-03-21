@@ -12,6 +12,7 @@ DEFAULT_SETTLING_THRESHOLD_MM = 0.5
 DEFAULT_SETTLING_CONSECUTIVE_SAMPLES = 10
 DEFAULT_SETTLING_SEARCH_WINDOW_S = 0.001
 DEFAULT_ZERO_DOSE_BOUNDARY_HOLDOFF_S = 0.0006
+DEFAULT_ZERO_DOSE_POST_MINIMAL_DOSE_BOUNDARY_S = 0.001
 
 
 def gaussian(x, amplitude, mean, stddev):
@@ -233,16 +234,32 @@ def calculate_differences_for_layer(
             DEFAULT_ZERO_DOSE_BOUNDARY_HOLDOFF_S,
         )
     )
+    post_minimal_dose_boundary_s = float(
+        config.get(
+            "ZERO_DOSE_POST_MINIMAL_DOSE_BOUNDARY_S",
+            DEFAULT_ZERO_DOSE_POST_MINIMAL_DOSE_BOUNDARY_S,
+        )
+    )
+    treatment_after_transit = np.flatnonzero(
+        (~spot_is_transit_min_dose[1:]) & spot_is_transit_min_dose[:-1]
+    ) + 1
     if boundary_holdoff_s > 0:
-        treatment_after_transit = np.flatnonzero(
-            (~spot_is_transit_min_dose[1:]) & spot_is_transit_min_dose[:-1]
-        ) + 1
         for spot_idx in treatment_after_transit:
             spot_start_s = plan_time_s[spot_idx - 1]
             spot_samples = assigned_spot_index == spot_idx
             sample_is_boundary_carryover |= (
                 spot_samples
                 & ((log_time_s - spot_start_s) < boundary_holdoff_s)
+            )
+    if post_minimal_dose_boundary_s > 0:
+        for spot_idx in treatment_after_transit:
+            spot_start_s = plan_time_s[spot_idx - 1]
+            spot_samples = assigned_spot_index == spot_idx
+            elapsed_s = log_time_s - spot_start_s
+            sample_is_boundary_carryover |= (
+                spot_samples
+                & (elapsed_s >= 0)
+                & (elapsed_s < post_minimal_dose_boundary_s)
             )
 
     zero_dose_filter_enabled = bool(config.get("ZERO_DOSE_FILTER_ENABLED", False))

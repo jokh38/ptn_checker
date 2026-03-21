@@ -12,10 +12,11 @@ DEFAULT_ZERO_DOSE_FILTER = {
     "enabled": True,
     "max_mu": 0.001,
     "machine_min_mu": 0.000452,
-    "min_scan_speed_mm_s": 10000.0,
+    "min_scan_speed_mm_s": 19000.0,
     "min_run_length": 2,
     "keep_first_zero_mu_spot": True,
     "boundary_holdoff_s": 0.0006,
+    "post_minimal_dose_boundary_s": 0.001,
     "report_mode": "filtered",
 }
 
@@ -97,6 +98,8 @@ def _validate_app_config(config: dict) -> None:
         raise ValueError("ZERO_DOSE_MIN_RUN_LENGTH must be >= 1")
     if config.get("ZERO_DOSE_BOUNDARY_HOLDOFF_S") < 0:
         raise ValueError("ZERO_DOSE_BOUNDARY_HOLDOFF_S must be >= 0")
+    if config.get("ZERO_DOSE_POST_MINIMAL_DOSE_BOUNDARY_S") < 0:
+        raise ValueError("ZERO_DOSE_POST_MINIMAL_DOSE_BOUNDARY_S must be >= 0")
 
 
 def _parse_zero_dose_filter_config(yaml_data: dict) -> dict:
@@ -116,6 +119,9 @@ def _parse_zero_dose_filter_config(yaml_data: dict) -> dict:
             merged["keep_first_zero_mu_spot"]
         ),
         "ZERO_DOSE_BOUNDARY_HOLDOFF_S": float(merged["boundary_holdoff_s"]),
+        "ZERO_DOSE_POST_MINIMAL_DOSE_BOUNDARY_S": float(
+            merged["post_minimal_dose_boundary_s"]
+        ),
         "ZERO_DOSE_REPORT_MODE": str(merged["report_mode"]).lower(),
     }
 

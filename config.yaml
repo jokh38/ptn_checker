@@ -9,8 +9,9 @@ zero_dose_filter:
   enabled: true
   max_mu: 0.001
   machine_min_mu: 0.000452
-  min_scan_speed_mm_s: 10000
+  min_scan_speed_mm_s: 19000
   min_run_length: 2
   keep_first_zero_mu_spot: true
   boundary_holdoff_s: 0.0006
+  post_minimal_dose_boundary_s: 0.001
   report_mode: "filtered"

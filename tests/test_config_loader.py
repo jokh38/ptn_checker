@@ -73,6 +73,7 @@ class TestConfigLoader(unittest.TestCase):
             f.write("  min_run_length: 3\n")
             f.write("  keep_first_zero_mu_spot: false\n")
             f.write("  boundary_holdoff_s: 0.0008\n")
+            f.write("  post_minimal_dose_boundary_s: 0.0012\n")
             f.write('  report_mode: "both"\n')
 
         config = parse_yaml_config(yaml_path)
@@ -86,6 +87,10 @@ class TestConfigLoader(unittest.TestCase):
         self.assertEqual(config["ZERO_DOSE_MIN_RUN_LENGTH"], 3)
         self.assertFalse(config["ZERO_DOSE_KEEP_FIRST_ZERO_MU_SPOT"])
         self.assertEqual(config["ZERO_DOSE_BOUNDARY_HOLDOFF_S"], 0.0008)
+        self.assertEqual(
+            config["ZERO_DOSE_POST_MINIMAL_DOSE_BOUNDARY_S"],
+            0.0012,
+        )
         self.assertEqual(config["ZERO_DOSE_REPORT_MODE"], "both")
 
     def test_parse_yaml_config_rejects_invalid_report_style(self):
