@@ -303,6 +303,167 @@ class TestMain(unittest.TestCase):
         self.assertTrue(captured_configs[0]["ZERO_DOSE_FILTER_ENABLED"])
         self.assertEqual(captured_configs[0]["ZERO_DOSE_REPORT_MODE"], "filtered")
 
+    def test_run_analysis_matches_single_delivery_to_beam_by_layer_count(self):
+        log_dir = os.path.join(self.test_dir, "single_delivery")
+        os.makedirs(log_dir)
+        for idx in range(1, 35):
+            open(os.path.join(log_dir, f"layer_{idx:03d}.ptn"), "wb").close()
+        with open(os.path.join(log_dir, "PlanInfo.txt"), "w", encoding="utf-8") as handle:
+            handle.write("DICOM_BEAM_NUMBER,3\n")
+
+        output_dir = os.path.join(self.test_dir, "output_single_delivery")
+        os.makedirs(output_dir)
+
+        plan_data = {
+            "patient_id": "123456",
+            "patient_name": "Test^Patient",
+            "machine_name": "G1",
+            "beams": {
+                2: {"name": "Beam 35", "layers": {i * 2: {"time_axis_s": np.array([0.0]), "trajectory_x_mm": np.array([0.0]), "trajectory_y_mm": np.array([0.0])} for i in range(35)}},
+                3: {"name": "Beam 34", "layers": {i * 2: {"time_axis_s": np.array([0.0]), "trajectory_x_mm": np.array([0.0]), "trajectory_y_mm": np.array([0.0])} for i in range(34)}},
+                4: {"name": "Beam 39", "layers": {i * 2: {"time_axis_s": np.array([0.0]), "trajectory_x_mm": np.array([0.0]), "trajectory_y_mm": np.array([0.0])} for i in range(39)}},
+            },
+        }
+
+        processed_layers = []
+
+        def fake_calculate_differences_for_layer(
+            plan_layer,
+            log_data,
+            save_to_csv=False,
+            csv_filename="",
+            config=None,
+        ):
+            processed_layers.append(plan_layer)
+            return {
+                "diff_x": np.array([0.0]),
+                "diff_y": np.array([0.0]),
+                "mean_diff_x": 0.0,
+                "mean_diff_y": 0.0,
+                "std_diff_x": 0.0,
+                "std_diff_y": 0.0,
+                "rmse_x": 0.0,
+                "rmse_y": 0.0,
+                "max_abs_diff_x": 0.0,
+                "max_abs_diff_y": 0.0,
+                "p95_abs_diff_x": 0.0,
+                "p95_abs_diff_y": 0.0,
+                "plan_positions": np.array([[0.0, 0.0]]),
+                "log_positions": np.array([[0.0, 0.0]]),
+                "hist_fit_x": {"amplitude": 0.0, "mean": 0.0, "stddev": 0.0},
+                "hist_fit_y": {"amplitude": 0.0, "mean": 0.0, "stddev": 0.0},
+                "time_overlap_fraction": 1.0,
+                "is_settling": np.array([False]),
+                "settling_index": 0,
+                "settling_samples_count": 0,
+                "settling_status": "settled",
+            }
+
+        with mock.patch.object(main, "parse_dcm_file", return_value=plan_data), mock.patch.object(
+            main, "parse_scv_init", return_value={}
+        ), mock.patch.object(
+            main, "parse_ptn_file", return_value={"time_ms": np.array([0.0]), "x": np.array([0.0]), "y": np.array([0.0])}
+        ), mock.patch.object(
+            main, "parse_planrange_for_directory", return_value={}
+        ), mock.patch.object(
+            main, "calculate_differences_for_layer", side_effect=fake_calculate_differences_for_layer
+        ), mock.patch.object(main, "generate_report") as mock_generate_report:
+            run_analysis(log_dir, self.dcm_file, output_dir, report_name="single_delivery")
+
+        self.assertEqual(34, len(processed_layers))
+        report_data = mock_generate_report.call_args.args[0]
+        self.assertEqual(0, len(report_data["Beam 35"]["layers"]))
+        self.assertEqual(34, len(report_data["Beam 34"]["layers"]))
+        self.assertEqual(0, len(report_data["Beam 39"]["layers"]))
+
+    def test_run_analysis_combines_day_deliveries_into_one_report_in_chronological_order(self):
+        day_dir = os.path.join(self.test_dir, "0722")
+        os.makedirs(day_dir)
+        delivery_specs = [
+            ("2025072222131300", 34, 3),
+            ("2025072222175500", 35, 2),
+            ("2025072222232700", 39, 4),
+        ]
+        for dirname, count, beam_number in delivery_specs:
+            delivery_dir = os.path.join(day_dir, dirname)
+            os.makedirs(delivery_dir)
+            for idx in range(1, count + 1):
+                open(os.path.join(delivery_dir, f"layer_{idx:03d}.ptn"), "wb").close()
+            with open(os.path.join(delivery_dir, "PlanInfo.txt"), "w", encoding="utf-8") as handle:
+                handle.write(f"DICOM_BEAM_NUMBER,{beam_number}\n")
+
+        output_dir = os.path.join(self.test_dir, "output_day")
+        os.makedirs(output_dir)
+
+        plan_data = {
+            "patient_id": "123456",
+            "patient_name": "Test^Patient",
+            "machine_name": "G1",
+            "beams": {
+                2: {"name": "Beam A", "layers": {i * 2: {"time_axis_s": np.array([0.0]), "trajectory_x_mm": np.array([0.0]), "trajectory_y_mm": np.array([0.0])} for i in range(35)}},
+                3: {"name": "Beam B", "layers": {i * 2: {"time_axis_s": np.array([0.0]), "trajectory_x_mm": np.array([0.0]), "trajectory_y_mm": np.array([0.0])} for i in range(34)}},
+                4: {"name": "Beam C", "layers": {i * 2: {"time_axis_s": np.array([0.0]), "trajectory_x_mm": np.array([0.0]), "trajectory_y_mm": np.array([0.0])} for i in range(39)}},
+            },
+        }
+
+        parsed_files = []
+
+        def fake_parse_ptn_file(file_path, config):
+            parsed_files.append(file_path)
+            return {"time_ms": np.array([0.0]), "x": np.array([0.0]), "y": np.array([0.0])}
+
+        def fake_calculate_differences_for_layer(
+            plan_layer,
+            log_data,
+            save_to_csv=False,
+            csv_filename="",
+            config=None,
+        ):
+            return {
+                "diff_x": np.array([0.0]),
+                "diff_y": np.array([0.0]),
+                "mean_diff_x": 0.0,
+                "mean_diff_y": 0.0,
+                "std_diff_x": 0.0,
+                "std_diff_y": 0.0,
+                "rmse_x": 0.0,
+                "rmse_y": 0.0,
+                "max_abs_diff_x": 0.0,
+                "max_abs_diff_y": 0.0,
+                "p95_abs_diff_x": 0.0,
+                "p95_abs_diff_y": 0.0,
+                "plan_positions": np.array([[0.0, 0.0]]),
+                "log_positions": np.array([[0.0, 0.0]]),
+                "hist_fit_x": {"amplitude": 0.0, "mean": 0.0, "stddev": 0.0},
+                "hist_fit_y": {"amplitude": 0.0, "mean": 0.0, "stddev": 0.0},
+                "time_overlap_fraction": 1.0,
+                "is_settling": np.array([False]),
+                "settling_index": 0,
+                "settling_samples_count": 0,
+                "settling_status": "settled",
+            }
+
+        with mock.patch.object(main, "parse_dcm_file", return_value=plan_data), mock.patch.object(
+            main, "parse_scv_init", return_value={}
+        ), mock.patch.object(
+            main, "parse_ptn_file", side_effect=fake_parse_ptn_file
+        ), mock.patch.object(
+            main, "parse_planrange_for_directory", return_value={}
+        ), mock.patch.object(
+            main, "calculate_differences_for_layer", side_effect=fake_calculate_differences_for_layer
+        ), mock.patch.object(main, "generate_report") as mock_generate_report:
+            run_analysis(day_dir, self.dcm_file, output_dir, report_name="combined_day")
+
+        report_data = mock_generate_report.call_args.args[0]
+        self.assertEqual(["Beam B", "Beam A", "Beam C"], [key for key in report_data if not key.startswith("_")])
+        self.assertEqual(35, len(report_data["Beam A"]["layers"]))
+        self.assertEqual(34, len(report_data["Beam B"]["layers"]))
+        self.assertEqual(39, len(report_data["Beam C"]["layers"]))
+
+        self.assertTrue(parsed_files[0].startswith(os.path.join(day_dir, "2025072222131300")))
+        self.assertTrue(parsed_files[34].startswith(os.path.join(day_dir, "2025072222175500")))
+        self.assertTrue(parsed_files[69].startswith(os.path.join(day_dir, "2025072222232700")))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,7 +3,7 @@
 # Application-level settings (migrated from app_config.txt)
 app:
   report_style: "summary"    # "summary" or "classic"
-  save_debug_csv: "on"       # "on" or "off"
+  save_debug_csv: "off"      # "on" or "off"
 
 zero_dose_filter:
   enabled: true
