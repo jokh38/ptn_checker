@@ -202,6 +202,60 @@ def _layer_passes(results, report_mode="raw"):
     return mean_ok and std_ok and max_ok
 
 
+def _spot_pass_summary(results, report_mode="raw"):
+    """Count passed spots using the current thresholds on per-spot sample stats."""
+    diff_x_key = _metric_key(results, "diff_x", report_mode)
+    diff_y_key = _metric_key(results, "diff_y", report_mode)
+    assigned_spot_index = results.get("assigned_spot_index")
+    if (
+        diff_x_key not in results
+        or diff_y_key not in results
+        or assigned_spot_index is None
+    ):
+        return 0, 0
+
+    diff_x = np.asarray(results[diff_x_key], dtype=float)
+    diff_y = np.asarray(results[diff_y_key], dtype=float)
+    assigned_spot_index = np.asarray(assigned_spot_index, dtype=int)
+
+    if report_mode != "raw" and "sample_is_included_filtered_stats" in results:
+        included_mask = np.asarray(
+            results["sample_is_included_filtered_stats"], dtype=bool
+        )
+        if included_mask.shape[0] == assigned_spot_index.shape[0]:
+            assigned_spot_index = assigned_spot_index[included_mask]
+
+    if (
+        diff_x.size == 0
+        or diff_y.size == 0
+        or assigned_spot_index.size == 0
+        or diff_x.size != diff_y.size
+        or diff_x.size != assigned_spot_index.size
+    ):
+        return 0, 0
+
+    passed_spots = 0
+    total_spots = 0
+    for spot_index in np.unique(assigned_spot_index):
+        spot_mask = assigned_spot_index == spot_index
+        if not np.any(spot_mask):
+            continue
+
+        total_spots += 1
+        spot_results = {
+            "mean_diff_x": float(np.mean(diff_x[spot_mask])),
+            "mean_diff_y": float(np.mean(diff_y[spot_mask])),
+            "std_diff_x": float(np.std(diff_x[spot_mask])),
+            "std_diff_y": float(np.std(diff_y[spot_mask])),
+            "max_abs_diff_x": float(np.max(np.abs(diff_x[spot_mask]))),
+            "max_abs_diff_y": float(np.max(np.abs(diff_y[spot_mask]))),
+        }
+        if _layer_passes(spot_results, report_mode="raw"):
+            passed_spots += 1
+
+    return passed_spots, total_spots
+
+
 def _generate_summary_page(
     beam_name,
     beam_data,
@@ -237,6 +291,8 @@ def _generate_summary_page(
     all_plan_pos, all_log_pos = [], []
     pass_flags = []
     layer_labels = []
+    passed_spots = 0
+    total_spots = 0
 
     for layer in layers_data:
         r = layer.get("results", {})
@@ -269,9 +325,14 @@ def _generate_summary_page(
             all_log_pos.append(log_pos)
 
         pass_flags.append(_layer_passes(r, report_mode=report_mode))
+        layer_passed_spots, layer_total_spots = _spot_pass_summary(
+            r, report_mode=report_mode
+        )
+        passed_spots += layer_passed_spots
+        total_spots += layer_total_spots
 
-    num_pass = sum(pass_flags)
-    pass_rate = num_pass / num_layers * 100 if num_layers > 0 else 0
+    num_pass = passed_spots
+    pass_rate = num_pass / total_spots * 100 if total_spots > 0 else 0
 
     # Global aggregate metrics
     global_mean_x = np.mean(mean_x_all) if mean_x_all else 0
@@ -308,7 +369,7 @@ def _generate_summary_page(
         ha="center", va="top", fontsize=16, fontweight="bold",
     )
     # Pass rate badge
-    badge_text = f"PASS {num_pass}/{num_layers} ({pass_rate:.0f}%)"
+    badge_text = f"PASS {num_pass}/{total_spots} ({pass_rate:.0f}%)"
     fig.text(
         0.95, 0.97, badge_text,
         ha="right", va="top", fontsize=10, fontweight="bold", color="white",

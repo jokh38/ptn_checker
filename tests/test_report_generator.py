@@ -12,6 +12,7 @@ from src.report_generator import (
     _generate_per_layer_position_plot,
     _save_plots_to_pdf_grid,
     _layer_passes,
+    _spot_pass_summary,
 )
 
 
@@ -190,6 +191,33 @@ class TestReportGenerator(unittest.TestCase):
 
         self.assertFalse(_layer_passes(results))
         self.assertTrue(_layer_passes(results, report_mode="filtered"))
+
+    def test_spot_pass_summary_counts_passed_spots(self):
+        results = {
+            "diff_x": np.array([0.1, 0.2, 0.2, 4.0]),
+            "diff_y": np.array([0.1, -0.2, 0.2, 4.0]),
+            "assigned_spot_index": np.array([0, 0, 1, 1]),
+        }
+
+        passed_spots, total_spots = _spot_pass_summary(results)
+
+        self.assertEqual(1, passed_spots)
+        self.assertEqual(2, total_spots)
+
+    def test_spot_pass_summary_uses_filtered_series_when_requested(self):
+        results = {
+            "diff_x": np.array([0.1, 4.0]),
+            "diff_y": np.array([0.1, 4.0]),
+            "filtered_diff_x": np.array([0.1]),
+            "filtered_diff_y": np.array([0.1]),
+            "assigned_spot_index": np.array([0, 0]),
+            "sample_is_included_filtered_stats": np.array([True, False]),
+        }
+
+        passed_spots, total_spots = _spot_pass_summary(results, report_mode="filtered")
+
+        self.assertEqual(1, passed_spots)
+        self.assertEqual(1, total_spots)
 
 if __name__ == '__main__':
     unittest.main()
