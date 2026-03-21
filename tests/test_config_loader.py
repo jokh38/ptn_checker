@@ -63,8 +63,10 @@ class TestConfigLoader(unittest.TestCase):
         with open(yaml_path, "w", encoding="utf-8") as f:
             f.write("# PTN Checker Configuration\n")
             f.write("app:\n")
-            f.write('  report_style: "classic"\n')
-            f.write('  save_debug_csv: "on"\n')
+            f.write("  report_style_summary: false\n")
+            f.write("  export_pdf_report: false\n")
+            f.write("  export_report_csv: true\n")
+            f.write("  save_debug_csv: true\n")
             f.write("zero_dose_filter:\n")
             f.write("  enabled: true\n")
             f.write("  max_mu: 0.002\n")
@@ -78,8 +80,10 @@ class TestConfigLoader(unittest.TestCase):
 
         config = parse_yaml_config(yaml_path)
 
-        self.assertEqual(config["REPORT_STYLE"], "classic")
-        self.assertEqual(config["SAVE_DEBUG_CSV"], "on")
+        self.assertFalse(config["REPORT_STYLE_SUMMARY"])
+        self.assertFalse(config["EXPORT_PDF_REPORT"])
+        self.assertTrue(config["EXPORT_REPORT_CSV"])
+        self.assertTrue(config["SAVE_DEBUG_CSV"])
         self.assertTrue(config["ZERO_DOSE_FILTER_ENABLED"])
         self.assertEqual(config["ZERO_DOSE_MAX_MU"], 0.002)
         self.assertEqual(config["ZERO_DOSE_MACHINE_MIN_MU"], 0.000452)
@@ -98,18 +102,22 @@ class TestConfigLoader(unittest.TestCase):
         with open(yaml_path, "w", encoding="utf-8") as f:
             f.write("# PTN Checker Configuration\n")
             f.write("app:\n")
-            f.write('  report_style: "invalid"\n')
-            f.write('  save_debug_csv: "off"\n')
+            f.write('  report_style_summary: "invalid"\n')
+            f.write("  export_pdf_report: true\n")
+            f.write("  export_report_csv: false\n")
+            f.write("  save_debug_csv: false\n")
 
-        with self.assertRaisesRegex(ValueError, "REPORT_STYLE"):
+        with self.assertRaisesRegex(ValueError, "REPORT_STYLE_SUMMARY"):
             parse_yaml_config(yaml_path)
 
     def test_parse_yaml_config_rejects_invalid_zero_dose_report_mode(self):
         yaml_path = os.path.join(self.test_dir, "config.yaml")
         with open(yaml_path, "w", encoding="utf-8") as f:
             f.write("app:\n")
-            f.write('  report_style: "summary"\n')
-            f.write('  save_debug_csv: "off"\n')
+            f.write("  report_style_summary: true\n")
+            f.write("  export_pdf_report: true\n")
+            f.write("  export_report_csv: false\n")
+            f.write("  save_debug_csv: false\n")
             f.write("zero_dose_filter:\n")
             f.write('  report_mode: "invalid"\n')
 

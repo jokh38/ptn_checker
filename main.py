@@ -11,6 +11,7 @@ from src.log_parser import parse_ptn_file
 from src.dicom_parser import parse_dcm_file
 from src.calculator import calculate_differences_for_layer
 from src.report_generator import generate_report
+from src.report_csv_exporter import export_report_csv
 from src.config_loader import parse_yaml_config, parse_scv_init
 from src.planrange_parser import parse_planrange_for_directory
 from src.mu_correction import apply_mu_correction
@@ -196,7 +197,7 @@ def run_analysis(log_dir, dcm_file, output_dir, report_name=None):
         "_patient_id": plan_data_raw.get("patient_id", ""),
         "_patient_name": plan_data_raw.get("patient_name", ""),
     }
-    save_debug_csv = app_config["SAVE_DEBUG_CSV"] == "on"
+    save_debug_csv = app_config["SAVE_DEBUG_CSV"]
 
     beam_processing_order = []
     for group in delivery_groups:
@@ -213,7 +214,7 @@ def run_analysis(log_dir, dcm_file, output_dir, report_name=None):
     for beam_number in beam_processing_order:
         beam_data = treatment_beams[beam_number]
         beam_name = beam_data.get("name", f"Beam {beam_number}")
-        report_data[beam_name] = {"layers": []}
+        report_data[beam_name] = {"beam_number": beam_number, "layers": []}
         matched_group = matched_groups.get(beam_number)
         if matched_group is None:
             logger.warning(
@@ -296,14 +297,23 @@ def run_analysis(log_dir, dcm_file, output_dir, report_name=None):
     ):
         raise ValueError("No analysis results were generated. Check logs for warnings.")
 
-    logger.info(f"Generating PDF report in directory: {output_dir}")
-    generate_report(
-        report_data,
-        output_dir,
-        report_style=app_config["REPORT_STYLE"],
-        report_name=report_name,
-        report_mode=app_config["ZERO_DOSE_REPORT_MODE"],
-    )
+    if app_config["EXPORT_REPORT_CSV"]:
+        logger.info(f"Generating report CSV files in directory: {output_dir}")
+        export_report_csv(
+            report_data,
+            output_dir,
+            report_mode=app_config["ZERO_DOSE_REPORT_MODE"],
+        )
+
+    if app_config["EXPORT_PDF_REPORT"]:
+        logger.info(f"Generating PDF report in directory: {output_dir}")
+        generate_report(
+            report_data,
+            output_dir,
+            report_style=app_config["REPORT_STYLE"],
+            report_name=report_name,
+            report_mode=app_config["ZERO_DOSE_REPORT_MODE"],
+        )
     logger.info("Done.")
 
 

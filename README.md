@@ -1,6 +1,6 @@
 # PTN Checker - Radiotherapy Plan and Log File Analyzer
 
-A Python-based tool for analyzing and comparing radiotherapy treatment plans (DICOM RTPLAN files) against actual delivery log files (PTN format). The default comparison aligns reconstructed plan trajectories to rebased log time and generates PDF reports with statistical analysis and visualization of position differences.
+A Python-based tool for analyzing and comparing radiotherapy treatment plans (DICOM RTPLAN files) against actual delivery log files (PTN format). The default comparison aligns reconstructed plan trajectories to rebased log time and can generate human-readable PDF reports plus machine-facing per-beam CSV summaries.
 
 ## Features
 
@@ -14,6 +14,7 @@ A Python-based tool for analyzing and comparing radiotherapy treatment plans (DI
 - **PDF Report Generation**: Creates reports in two styles:
   - **Summary** (default): One page per beam with pass/fail indicators and key statistics
   - **Classic**: Multi-page detailed plots with error bars and 2D position comparisons
+- **Report CSV Export**: Writes one CSV per beam with one row per analyzed layer for downstream program use
 - **Machine-Specific Configuration**: Supports different treatment machines (G1, G2) with calibration parameters
 - **Beam Filtering**: Optional filtering of log data based on beam on/off states
 - **Multi-Beam and Multi-Layer Support**: Handles complex treatment plans with multiple beams and energy layers
@@ -80,7 +81,8 @@ python main.py \
 The tool generates:
 - **`{case_id}_{date}.pdf`**: Main analysis report (e.g., `2025042401440800_2025-01-15.pdf`)
   - Report name is derived from the log directory basename and current date
-- **`debug_data_beam_<N>_layer_<M>.csv`** (optional): Debug CSV file for the first processed layer containing interpolated and raw data when `SAVE_DEBUG_CSV=on`
+- **`<beam_name>_report_layers.csv`** (optional): Per-beam report CSV with one row per analyzed layer when `export_report_csv: true`
+- **`debug_data_beam_<N>_layer_<M>.csv`** (optional): Debug CSV with interpolated and raw per-sample data when `save_debug_csv: true`
 
 ### Report Styles
 
@@ -100,7 +102,7 @@ The tool generates:
 
 The tool loads two configuration sources from the same directory as `main.py`:
 
-- `config.yaml`: application-level output behavior (report style, debug options)
+- `config.yaml`: application-level output behavior (PDF report, report CSV, debug CSV)
 - `scv_init_<machine>.txt`: machine-specific calibration and processing parameters
 
 The treatment machine is detected from the DICOM file and mapped to the corresponding machine config:
@@ -116,14 +118,18 @@ Application-level report and debug behavior is configured in `config.yaml`:
 
 ```yaml
 app:
-  report_style: "summary"    # "summary" or "classic"
-  save_debug_csv: "off"      # "on" or "off"
+  report_style_summary: true
+  export_pdf_report: true
+  export_report_csv: false
+  save_debug_csv: false
 ```
 
 | Parameter | Description |
 |-----------|-------------|
-| `report_style` | `summary` for the one-page report or `classic` for the detailed multi-page report |
-| `save_debug_csv` | `on` to save the first processed layer as `debug_data_beam_<N>_layer_<M>.csv`, `off` to disable debug CSV output |
+| `report_style_summary` | `true` selects the current summary PDF layout; `false` maps to the legacy detailed PDF layout |
+| `export_pdf_report` | `true` to generate the PDF report, `false` to skip PDF generation |
+| `export_report_csv` | `true` to generate one per-beam layer-summary CSV for downstream programs |
+| `save_debug_csv` | `true` to generate per-layer debug CSV files with low-level sample data |
 
 ### scv_init Files
 
@@ -182,6 +188,7 @@ ptn_checker/
 │   ├── mu_correction.py      # Applies physics corrections to MU values
 │   ├── calculator.py         # Calculates position differences
 │   ├── report_generator.py   # Generates PDF reports
+│   ├── report_csv_exporter.py # Generates per-beam report CSV files
 │   └── config_loader.py      # Loads configuration files
 ├── tests/
 │   ├── __init__.py
@@ -200,14 +207,14 @@ ptn_checker/
 ## Workflow
 
 1. **Load DICOM File**: Parse the RTPLAN file to extract planned beam positions, layers, and MU values
-2. **Load Configuration**: Read app-level output settings from `app_config.txt` and machine-specific calibration from the matching `scv_init` file
+2. **Load Configuration**: Read app-level output settings from `config.yaml` and machine-specific calibration from the matching `scv_init` file
 3. **Parse PlanRange**: Load PlanRange.txt to get per-layer energy and monitor range codes
 4. **Find PTN Files**: Recursively search for `.ptn` log files in the specified directory
 5. **Parse PTN Files**: For each layer, parse the corresponding PTN file with calibration
 6. **Apply MU Correction**: Convert raw dose counts to physics-corrected MU values using energy-dependent factors
 7. **Calculate Differences**: Sample the reconstructed plan trajectory on rebased log time and calculate position differences
 8. **Statistical Analysis**: Fit Gaussian curves to difference histograms
-9. **Generate Report**: Create PDF with plots and statistics in selected style
+9. **Generate Outputs**: Create PDF and/or per-beam report CSV files according to `config.yaml`
 
 ## MU Correction
 

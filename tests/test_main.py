@@ -2,6 +2,7 @@ import unittest
 import os
 import tempfile
 import shutil
+import csv
 import numpy as np
 from unittest import mock
 
@@ -86,15 +87,27 @@ class TestMain(unittest.TestCase):
     def create_dummy_yaml_config_file(
         self,
         filename,
-        report_style="summary",
-        save_debug_csv="off",
+        report_style_summary=True,
+        export_pdf_report=True,
+        export_report_csv=False,
+        save_debug_csv=False,
         zero_dose_enabled=False,
         zero_dose_report_mode="filtered",
     ):
         with open(filename, "w", encoding="utf-8") as f:
             f.write("app:\n")
-            f.write(f'  report_style: "{report_style}"\n')
-            f.write(f'  save_debug_csv: "{save_debug_csv}"\n')
+            f.write(
+                f"  report_style_summary: {'true' if report_style_summary else 'false'}\n"
+            )
+            f.write(
+                f"  export_pdf_report: {'true' if export_pdf_report else 'false'}\n"
+            )
+            f.write(
+                f"  export_report_csv: {'true' if export_report_csv else 'false'}\n"
+            )
+            f.write(
+                f"  save_debug_csv: {'true' if save_debug_csv else 'false'}\n"
+            )
             f.write("zero_dose_filter:\n")
             f.write(f"  enabled: {'true' if zero_dose_enabled else 'false'}\n")
             f.write(f'  report_mode: "{zero_dose_report_mode}"\n')
@@ -143,7 +156,7 @@ class TestMain(unittest.TestCase):
         output_dir = os.path.join(self.test_dir, "output_style")
         os.makedirs(output_dir)
         self.create_dummy_yaml_config_file(
-            self.yaml_config_path, report_style="classic"
+            self.yaml_config_path, report_style_summary=False
         )
 
         with mock.patch.object(main, "generate_report") as mock_generate_report:
@@ -157,7 +170,7 @@ class TestMain(unittest.TestCase):
         output_dir = os.path.join(self.test_dir, "output_debug")
         os.makedirs(output_dir)
 
-        self.create_dummy_yaml_config_file(self.yaml_config_path, save_debug_csv="off")
+        self.create_dummy_yaml_config_file(self.yaml_config_path, save_debug_csv=False)
         with mock.patch.object(main, "generate_report"):
             run_analysis(self.test_dir, self.dcm_file, output_dir)
         self.assertEqual(
@@ -165,7 +178,7 @@ class TestMain(unittest.TestCase):
             [name for name in os.listdir(output_dir) if name.endswith(".csv")],
         )
 
-        self.create_dummy_yaml_config_file(self.yaml_config_path, save_debug_csv="on")
+        self.create_dummy_yaml_config_file(self.yaml_config_path, save_debug_csv=True)
         with mock.patch.object(main, "generate_report"):
             run_analysis(self.test_dir, self.dcm_file, output_dir)
         self.assertTrue(any(name.endswith(".csv") for name in os.listdir(output_dir)))
@@ -174,7 +187,7 @@ class TestMain(unittest.TestCase):
         output_dir = os.path.join(self.test_dir, "output_debug_all_layers")
         os.makedirs(output_dir)
 
-        self.create_dummy_yaml_config_file(self.yaml_config_path, save_debug_csv="on")
+        self.create_dummy_yaml_config_file(self.yaml_config_path, save_debug_csv=True)
 
         plan_data = {
             "patient_id": "123456",
@@ -463,6 +476,171 @@ class TestMain(unittest.TestCase):
         self.assertTrue(parsed_files[0].startswith(os.path.join(day_dir, "2025072222131300")))
         self.assertTrue(parsed_files[34].startswith(os.path.join(day_dir, "2025072222175500")))
         self.assertTrue(parsed_files[69].startswith(os.path.join(day_dir, "2025072222232700")))
+
+    def test_run_analysis_writes_report_csv_without_pdf_when_enabled(self):
+        output_dir = os.path.join(self.test_dir, "output_report_csv")
+        os.makedirs(output_dir)
+        self.create_dummy_yaml_config_file(
+            self.yaml_config_path,
+            report_style_summary=True,
+            export_pdf_report=False,
+            export_report_csv=True,
+            save_debug_csv=False,
+            zero_dose_enabled=True,
+            zero_dose_report_mode="filtered",
+        )
+
+        plan_data = {
+            "patient_id": "123456",
+            "patient_name": "Test^Patient",
+            "machine_name": "G1",
+            "beams": {
+                1: {
+                    "name": "Beam 1",
+                    "layers": {
+                        0: {
+                            "time_axis_s": np.array([0.0]),
+                            "trajectory_x_mm": np.array([0.0]),
+                            "trajectory_y_mm": np.array([0.0]),
+                        },
+                        2: {
+                            "time_axis_s": np.array([0.0]),
+                            "trajectory_x_mm": np.array([1.0]),
+                            "trajectory_y_mm": np.array([1.0]),
+                        },
+                    },
+                }
+            },
+        }
+        fake_ptn_files = [
+            os.path.join(self.test_dir, "layer0.ptn"),
+            os.path.join(self.test_dir, "layer1.ptn"),
+        ]
+
+        results_queue = [
+            {
+                "diff_x": np.array([0.1, 0.2]),
+                "diff_y": np.array([0.1, 0.2]),
+                "filtered_diff_x": np.array([0.1]),
+                "filtered_diff_y": np.array([0.1]),
+                "sample_is_included_filtered_stats": np.array([True, False]),
+                "assigned_spot_index": np.array([0, 0]),
+                "mean_diff_x": 5.0,
+                "mean_diff_y": 5.0,
+                "std_diff_x": 5.0,
+                "std_diff_y": 5.0,
+                "rmse_x": 5.0,
+                "rmse_y": 5.0,
+                "max_abs_diff_x": 5.0,
+                "max_abs_diff_y": 5.0,
+                "p95_abs_diff_x": 5.0,
+                "p95_abs_diff_y": 5.0,
+                "filtered_mean_diff_x": 0.1,
+                "filtered_mean_diff_y": 0.2,
+                "filtered_std_diff_x": 0.3,
+                "filtered_std_diff_y": 0.4,
+                "filtered_rmse_x": 0.5,
+                "filtered_rmse_y": 0.6,
+                "filtered_max_abs_diff_x": 0.7,
+                "filtered_max_abs_diff_y": 0.8,
+                "filtered_p95_abs_diff_x": 0.9,
+                "filtered_p95_abs_diff_y": 1.0,
+                "filtered_stats_fallback_to_raw": False,
+                "num_included_samples": 1,
+                "num_filtered_samples": 1,
+                "filtered_sample_fraction": 0.5,
+                "filtered_mu_fraction_estimate": 0.25,
+                "time_overlap_fraction": 1.0,
+                "is_settling": np.array([False, False]),
+                "settling_index": 0,
+                "settling_samples_count": 0,
+                "settling_status": "settled",
+                "plan_positions": np.array([[0.0, 0.0]]),
+                "log_positions": np.array([[0.0, 0.0]]),
+                "hist_fit_x": {"amplitude": 0.0, "mean": 0.0, "stddev": 0.0},
+                "hist_fit_y": {"amplitude": 0.0, "mean": 0.0, "stddev": 0.0},
+            },
+            {
+                "diff_x": np.array([0.2, 0.3]),
+                "diff_y": np.array([0.2, 0.3]),
+                "assigned_spot_index": np.array([0, 1]),
+                "mean_diff_x": 0.2,
+                "mean_diff_y": 0.3,
+                "std_diff_x": 0.4,
+                "std_diff_y": 0.5,
+                "rmse_x": 0.6,
+                "rmse_y": 0.7,
+                "max_abs_diff_x": 0.8,
+                "max_abs_diff_y": 0.9,
+                "p95_abs_diff_x": 1.0,
+                "p95_abs_diff_y": 1.1,
+                "filtered_mean_diff_x": 0.2,
+                "filtered_mean_diff_y": 0.3,
+                "filtered_std_diff_x": 0.4,
+                "filtered_std_diff_y": 0.5,
+                "filtered_rmse_x": 0.6,
+                "filtered_rmse_y": 0.7,
+                "filtered_max_abs_diff_x": 0.8,
+                "filtered_max_abs_diff_y": 0.9,
+                "filtered_p95_abs_diff_x": 1.0,
+                "filtered_p95_abs_diff_y": 1.1,
+                "filtered_stats_fallback_to_raw": True,
+                "num_included_samples": 0,
+                "num_filtered_samples": 2,
+                "filtered_sample_fraction": 1.0,
+                "filtered_mu_fraction_estimate": 1.0,
+                "time_overlap_fraction": 0.75,
+                "is_settling": np.array([False, True]),
+                "settling_index": 1,
+                "settling_samples_count": 1,
+                "settling_status": "never_settled",
+                "plan_positions": np.array([[1.0, 1.0]]),
+                "log_positions": np.array([[1.0, 1.0]]),
+                "hist_fit_x": {"amplitude": 0.0, "mean": 0.0, "stddev": 0.0},
+                "hist_fit_y": {"amplitude": 0.0, "mean": 0.0, "stddev": 0.0},
+            },
+        ]
+
+        def fake_calculate_differences_for_layer(
+            plan_layer,
+            log_data,
+            save_to_csv=False,
+            csv_filename="",
+            config=None,
+        ):
+            return results_queue.pop(0)
+
+        with mock.patch.object(main, "parse_dcm_file", return_value=plan_data), mock.patch.object(
+            main, "find_ptn_files", return_value=fake_ptn_files
+        ), mock.patch.object(
+            main, "parse_ptn_file", return_value={"time_ms": np.array([0.0]), "x": np.array([0.0]), "y": np.array([0.0])}
+        ), mock.patch.object(
+            main, "parse_planrange_for_directory", return_value={}
+        ), mock.patch.object(
+            main, "calculate_differences_for_layer", side_effect=fake_calculate_differences_for_layer
+        ), mock.patch.object(main, "generate_report") as mock_generate_report:
+            run_analysis(self.test_dir, self.dcm_file, output_dir)
+
+        mock_generate_report.assert_not_called()
+        csv_files = sorted(name for name in os.listdir(output_dir) if name.endswith(".csv"))
+        self.assertEqual(["Beam_1_report_layers.csv"], csv_files)
+
+        csv_path = os.path.join(output_dir, csv_files[0])
+        with open(csv_path, "r", encoding="utf-8", newline="") as handle:
+            rows = list(csv.DictReader(handle))
+
+        self.assertEqual(2, len(rows))
+        self.assertEqual("1", rows[0]["layer_number"])
+        self.assertEqual("2", rows[1]["layer_number"])
+        self.assertEqual("filtered", rows[0]["report_mode_used"])
+        self.assertEqual("True", rows[0]["layer_pass"])
+        self.assertEqual("False", rows[0]["filtered_stats_fallback_to_raw"])
+        self.assertEqual("0.1", rows[0]["mean_diff_x_mm"])
+        self.assertEqual("2", rows[0]["num_total_samples"])
+        self.assertEqual("1", rows[0]["passed_spots"])
+        self.assertEqual("1", rows[0]["total_spots"])
+        self.assertEqual("True", rows[1]["filtered_stats_fallback_to_raw"])
+        self.assertEqual("0.75", rows[1]["time_overlap_fraction"])
 
 
 if __name__ == "__main__":

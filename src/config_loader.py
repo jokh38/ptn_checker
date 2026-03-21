@@ -4,8 +4,6 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-VALID_REPORT_STYLES = {"summary", "classic"}
-VALID_TOGGLE_VALUES = {"on", "off"}
 VALID_ZERO_DOSE_REPORT_MODES = {"filtered", "raw", "both"}
 
 DEFAULT_ZERO_DOSE_FILTER = {
@@ -73,13 +71,15 @@ def _parse_key_value_config(
 
 
 def _validate_app_config(config: dict) -> None:
-    report_style = config.get("REPORT_STYLE")
-    save_debug_csv = config.get("SAVE_DEBUG_CSV")
-
-    if report_style not in VALID_REPORT_STYLES:
-        raise ValueError(f"REPORT_STYLE must be one of {sorted(VALID_REPORT_STYLES)}")
-    if save_debug_csv not in VALID_TOGGLE_VALUES:
-        raise ValueError(f"SAVE_DEBUG_CSV must be one of {sorted(VALID_TOGGLE_VALUES)}")
+    for key in (
+        "REPORT_STYLE_SUMMARY",
+        "EXPORT_PDF_REPORT",
+        "EXPORT_REPORT_CSV",
+        "SAVE_DEBUG_CSV",
+    ):
+        value = config.get(key)
+        if not isinstance(value, bool):
+            raise ValueError(f"{key} must be a boolean")
 
     report_mode = config.get("ZERO_DOSE_REPORT_MODE")
     if report_mode not in VALID_ZERO_DOSE_REPORT_MODES:
@@ -129,8 +129,8 @@ def _parse_zero_dose_filter_config(yaml_data: dict) -> dict:
 def parse_app_config(file_path: str) -> dict:
     config = _parse_key_value_config(
         file_path=file_path,
-        allowed_keys={"REPORT_STYLE", "SAVE_DEBUG_CSV"},
-        string_keys={"REPORT_STYLE", "SAVE_DEBUG_CSV"},
+        allowed_keys=set(),
+        string_keys=set(),
     )
     _validate_app_config(config)
     return config
@@ -150,16 +150,27 @@ def parse_yaml_config(file_path: str) -> dict:
     if not isinstance(app_section, dict):
         raise ValueError("Invalid YAML structure: 'app' must be a dict")
 
-    report_style = app_section.get("report_style")
+    report_style_summary = app_section.get("report_style_summary")
+    export_pdf_report = app_section.get("export_pdf_report")
+    export_report_csv = app_section.get("export_report_csv")
     save_debug_csv = app_section.get("save_debug_csv")
 
-    if report_style is None or save_debug_csv is None:
+    if (
+        report_style_summary is None
+        or export_pdf_report is None
+        or export_report_csv is None
+        or save_debug_csv is None
+    ):
         raise ValueError(
-            "Missing required keys in app section: report_style, save_debug_csv"
+            "Missing required keys in app section: "
+            "report_style_summary, export_pdf_report, export_report_csv, save_debug_csv"
         )
 
     config = {
-        "REPORT_STYLE": report_style,
+        "REPORT_STYLE_SUMMARY": report_style_summary,
+        "REPORT_STYLE": "summary" if report_style_summary else "classic",
+        "EXPORT_PDF_REPORT": export_pdf_report,
+        "EXPORT_REPORT_CSV": export_report_csv,
         "SAVE_DEBUG_CSV": save_debug_csv,
     }
     config.update(_parse_zero_dose_filter_config(yaml_data))
