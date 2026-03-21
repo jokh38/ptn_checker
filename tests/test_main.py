@@ -185,7 +185,7 @@ class TestMain(unittest.TestCase):
                     "name": "Beam 1",
                     "layers": {
                         0: {"time_axis_s": np.array([0.0]), "trajectory_x_mm": np.array([0.0]), "trajectory_y_mm": np.array([0.0])},
-                        1: {"time_axis_s": np.array([0.0]), "trajectory_x_mm": np.array([1.0]), "trajectory_y_mm": np.array([1.0])},
+                        2: {"time_axis_s": np.array([0.0]), "trajectory_x_mm": np.array([1.0]), "trajectory_y_mm": np.array([1.0])},
                     },
                 }
             },
@@ -245,8 +245,8 @@ class TestMain(unittest.TestCase):
         self.assertEqual(2, len(csv_calls))
         self.assertCountEqual(
             [
-                os.path.join(output_dir, "debug_data_beam_1_layer_0.csv"),
                 os.path.join(output_dir, "debug_data_beam_1_layer_1.csv"),
+                os.path.join(output_dir, "debug_data_beam_1_layer_2.csv"),
             ],
             csv_calls,
         )

@@ -129,9 +129,10 @@ def run_analysis(log_dir, dcm_file, output_dir, report_name=None):
                     save_csv_for_this_layer = save_debug_csv
                     csv_filepath = ""
                     if save_csv_for_this_layer:
+                        layer_number = layer_index // 2 + 1
                         csv_filepath = os.path.join(
                             output_dir,
-                            f"debug_data_beam_{beam_number}_layer_{layer_index}.csv",
+                            f"debug_data_beam_{beam_number}_layer_{layer_number}.csv",
                         )
 
                     analysis_results = calculate_differences_for_layer(
