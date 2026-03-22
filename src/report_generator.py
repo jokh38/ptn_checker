@@ -940,10 +940,10 @@ def _generate_summary_page(
     ax_heatmap_flag_legend = fig.add_subplot(right_gs[4, :])
     heatmap_values = np.array([
         np.abs(mean_x_all),
-        np.abs(mean_y_all),
         std_x_all,
-        std_y_all,
         max_x_all,
+        np.abs(mean_y_all),
+        std_y_all,
         max_y_all,
     ])
     flag_rows = {}

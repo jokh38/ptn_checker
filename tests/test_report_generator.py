@@ -306,6 +306,31 @@ class TestReportGenerator(unittest.TestCase):
         self.assertIn("Y", group_labels)
         plt.close(fig)
 
+    def test_generate_summary_page_orders_heatmap_columns_by_axis_group(self):
+        beam_data = self.report_data["Beam 1"]
+        expected_rows = []
+        for idx, layer in enumerate(beam_data["layers"], start=1):
+            results = layer["results"]
+            results["max_abs_diff_x"] = 10.0 + idx
+            results["max_abs_diff_y"] = 20.0 + idx
+            expected_rows.append([
+                abs(results["mean_diff_x"]),
+                results["std_diff_x"],
+                results["max_abs_diff_x"],
+                abs(results["mean_diff_y"]),
+                results["std_diff_y"],
+                results["max_abs_diff_y"],
+            ])
+
+        fig = _generate_summary_page("Beam 1", beam_data)
+        heatmap_ax = next(ax for ax in fig.axes if len(ax.images) == 1 and ax.get_ylabel() == "Layer")
+
+        np.testing.assert_allclose(
+            np.asarray(expected_rows, dtype=float),
+            np.asarray(heatmap_ax.images[0].get_array(), dtype=float),
+        )
+        plt.close(fig)
+
     def test_generate_summary_page_uses_dedicated_heatmap_header_band(self):
         beam_data = self.report_data["Beam 1"]
 
