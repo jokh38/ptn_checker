@@ -3,6 +3,7 @@ import os
 import tempfile
 import shutil
 import csv
+from datetime import date
 import numpy as np
 from unittest import mock
 
@@ -641,6 +642,48 @@ class TestMain(unittest.TestCase):
         self.assertEqual("1", rows[0]["total_spots"])
         self.assertEqual("True", rows[1]["filtered_stats_fallback_to_raw"])
         self.assertEqual("0.75", rows[1]["time_overlap_fraction"])
+
+    def test_main_uses_parent_case_directory_name_for_combined_report(self):
+        case_dir = os.path.join(self.test_dir, "55758663")
+        os.makedirs(case_dir)
+
+        with mock.patch.object(main, "run_analysis") as mock_run_analysis, mock.patch(
+            "sys.argv",
+            [
+                "main.py",
+                "--log_dir",
+                case_dir,
+                "--dcm_file",
+                self.dcm_file,
+                "--output",
+                self.test_dir,
+            ],
+        ):
+            main.main()
+
+        expected_report_name = f"55758663_{date.today().isoformat()}"
+        self.assertEqual(
+            mock.call(case_dir, self.dcm_file, self.test_dir, report_name=expected_report_name),
+            mock_run_analysis.call_args,
+        )
+
+    def test_run_analysis_passes_analysis_config_to_generate_report(self):
+        output_dir = os.path.join(self.test_dir, "output_config_pass")
+        os.makedirs(output_dir)
+        self.create_dummy_yaml_config_file(self.yaml_config_path, zero_dose_enabled=True)
+
+        with mock.patch.object(main, "generate_report") as mock_generate_report:
+            run_analysis(self.test_dir, self.dcm_file, output_dir)
+
+        self.assertIn("analysis_config", mock_generate_report.call_args.kwargs)
+        passed_config = mock_generate_report.call_args.kwargs["analysis_config"]
+        self.assertIsNotNone(passed_config)
+        self.assertIn("SETTLING_THRESHOLD_MM", passed_config)
+        self.assertTrue(passed_config["ZERO_DOSE_FILTER_ENABLED"])
+
+    def test_derive_report_name_uses_case_directory_basename(self):
+        report_name = main.derive_report_name("/tmp/55758663")
+        self.assertEqual(f"55758663_{date.today().isoformat()}", report_name)
 
 
 if __name__ == "__main__":

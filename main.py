@@ -19,6 +19,13 @@ from src.mu_correction import apply_mu_correction
 logger = logging.getLogger(__name__)
 
 
+def derive_report_name(log_dir, today=None):
+    """Build a case-level report name from the selected log directory."""
+    report_date = today or date.today()
+    case_id = os.path.basename(os.path.normpath(log_dir))
+    return f"{case_id}_{report_date.isoformat()}"
+
+
 def find_ptn_files(directory):
     ptn_files = []
     for root, _, files in os.walk(directory):
@@ -313,6 +320,7 @@ def run_analysis(log_dir, dcm_file, output_dir, report_name=None):
             report_style=app_config["REPORT_STYLE"],
             report_name=report_name,
             report_mode=app_config["ZERO_DOSE_REPORT_MODE"],
+            analysis_config=analysis_config,
         )
     logger.info("Done.")
 
@@ -337,9 +345,7 @@ def main():
     )
     args = parser.parse_args()
 
-    # Derive report name from case ID (log directory basename) and today's date
-    case_id = os.path.basename(os.path.normpath(args.log_dir))
-    report_name = f"{case_id}_{date.today().isoformat()}"
+    report_name = derive_report_name(args.log_dir)
 
     try:
         run_analysis(args.log_dir, args.dcm_file, args.output, report_name=report_name)
