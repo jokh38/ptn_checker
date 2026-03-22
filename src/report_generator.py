@@ -445,6 +445,33 @@ def _draw_layer_table(fig, ax, rows, values, flags, col_labels, colored_cols, cm
     cbar.set_label("Colormap: |mean|, std  (0 \u2013 3 mm)", fontsize=6)
 
 
+def _layer_flag_codes(flag_rows, num_layers):
+    """Collapse multiple binary flag rows into one prioritized abbreviation."""
+    if num_layers <= 0:
+        return [], []
+
+    priority = [
+        ("Fail", "FAIL", 4, "#e74c3c"),
+        ("Settle", "NS", 3, "#f39c12"),
+        ("Overlap", "OV", 2, "#f1c40f"),
+        ("Fallback", "FB", 1, "#5d6d7e"),
+    ]
+    codes = []
+    values = []
+    for layer_idx in range(num_layers):
+        selected_code = ""
+        selected_value = 0
+        for row_name, code, value, _color in priority:
+            row = flag_rows.get(row_name) if flag_rows else None
+            if row is not None and layer_idx < len(row) and bool(row[layer_idx]):
+                selected_code = code
+                selected_value = value
+                break
+        codes.append(selected_code)
+        values.append(selected_value)
+    return codes, values
+
+
 def _draw_layer_heatmap(
     fig,
     ax,
@@ -455,14 +482,14 @@ def _draw_layer_heatmap(
     flag_ax=None,
     cbar_ax=None,
 ):
-    """Draw a compact all-layer heatmap with optional binary flag rows."""
+    """Draw a compact all-layer heatmap with an optional single-column flag view."""
     heatmap_values = np.asarray(heatmap_values, dtype=float)
     num_metrics, num_layers = heatmap_values.shape if heatmap_values.size else (0, 0)
 
     cmap = plt.cm.RdYlGn_r
     norm = Normalize(vmin=0, vmax=THRESHOLDS["max_abs_diff_mm"])
     image = ax.imshow(
-        heatmap_values,
+        heatmap_values.T,
         aspect="auto",
         interpolation="nearest",
         cmap=cmap,
@@ -470,21 +497,43 @@ def _draw_layer_heatmap(
         origin="upper",
     )
     ax.set_title("Layer Heatmap", fontsize=9, fontweight="bold", pad=6)
-    ax.set_yticks(np.arange(num_metrics))
-    ax.set_yticklabels(metric_labels, fontsize=6)
-    ax.set_xticks(np.arange(num_layers))
+    ax.set_yticks(np.arange(num_layers))
+    ax.set_xticks(np.arange(num_metrics))
+    ax.set_xticklabels(metric_labels, fontsize=6)
 
-    tick_positions = np.arange(num_layers)
     if num_layers > 25:
         tick_step = max(1, int(np.ceil(num_layers / 25)))
         tick_positions = np.arange(0, num_layers, tick_step)
-        ax.set_xticks(tick_positions)
-        ax.set_xticklabels([layer_labels[i] for i in tick_positions], fontsize=5)
+        ax.set_yticks(tick_positions)
+        ax.set_yticklabels([layer_labels[i] for i in tick_positions], fontsize=5)
     else:
-        ax.set_xticklabels(layer_labels, fontsize=6)
+        ax.set_yticklabels(layer_labels, fontsize=6)
 
-    ax.set_xlabel("Layer", fontsize=7)
-    ax.tick_params(axis="x", rotation=90, pad=1)
+    ax.set_xlabel("Metric", fontsize=7)
+    ax.set_ylabel("Layer", fontsize=7)
+    ax.tick_params(axis="x", rotation=0, pad=1, labelsize=6)
+    ax.tick_params(axis="y", labelsize=6)
+    if num_metrics >= 6:
+        ax.text(
+            1.0,
+            -0.10,
+            "X",
+            ha="center",
+            va="top",
+            fontsize=6,
+            fontweight="bold",
+            transform=ax.get_xaxis_transform(),
+        )
+        ax.text(
+            4.0,
+            -0.10,
+            "Y",
+            ha="center",
+            va="top",
+            fontsize=6,
+            fontweight="bold",
+            transform=ax.get_xaxis_transform(),
+        )
 
     cbar = fig.colorbar(
         image,
@@ -499,25 +548,42 @@ def _draw_layer_heatmap(
 
     flag_image = None
     if flag_rows:
-        row_names = list(flag_rows.keys())
-        flag_values = np.asarray([flag_rows[name] for name in row_names], dtype=float)
+        flag_codes, flag_values = _layer_flag_codes(flag_rows, num_layers)
         if flag_ax is None:
-            flag_ax = ax.inset_axes([0.0, -0.30, 1.0, 0.16])
+            flag_ax = ax.inset_axes([1.02, 0.0, 0.12, 1.0])
         flag_image = flag_ax.imshow(
-            flag_values,
+            np.asarray(flag_values, dtype=float).reshape(num_layers, 1),
             aspect="auto",
             interpolation="nearest",
-            cmap=plt.cm.Reds,
+            cmap=plt.cm.YlOrRd,
             vmin=0,
-            vmax=1,
+            vmax=4,
             origin="upper",
         )
-        flag_ax.set_yticks(np.arange(len(row_names)))
-        flag_ax.set_yticklabels(row_names, fontsize=5)
-        flag_ax.set_xticks(tick_positions)
-        flag_ax.set_xticklabels([])
-        flag_ax.tick_params(axis="x", length=0, pad=0)
-        flag_ax.set_xlabel("Flags", fontsize=6, labelpad=1)
+        flag_ax.set_xticks([0])
+        flag_ax.set_xticklabels(["Flag"], fontsize=6)
+        if num_layers > 25:
+            tick_step = max(1, int(np.ceil(num_layers / 25)))
+            tick_positions = np.arange(0, num_layers, tick_step)
+            flag_ax.set_yticks(tick_positions)
+            flag_ax.set_yticklabels([])
+        else:
+            flag_ax.set_yticks(np.arange(num_layers))
+            flag_ax.set_yticklabels([])
+        flag_ax.tick_params(axis="x", length=0, pad=1)
+        flag_ax.tick_params(axis="y", length=0)
+        for layer_idx, code in enumerate(flag_codes):
+            if code:
+                flag_ax.text(
+                    0,
+                    layer_idx,
+                    code,
+                    ha="center",
+                    va="center",
+                    fontsize=6,
+                    fontweight="bold",
+                    color="black",
+                )
 
     return image, flag_image
 
@@ -744,50 +810,109 @@ def _generate_summary_page(
     # --- Middle-left: Vertically long layer trend plot ---
     ax_err = fig.add_subplot(middle_gs[0, 0])
     layer_idx = np.arange(1, num_layers + 1)
-    radial_rmse = np.sqrt(np.array(rmse_x_all) ** 2 + np.array(rmse_y_all) ** 2)
     worst_axis_error = np.maximum(np.array(max_x_all), np.array(max_y_all))
+    y_x = layer_idx - 0.16
+    y_y = layer_idx + 0.16
 
-    ax_err.plot(layer_idx, radial_rmse, "-", linewidth=1.0, color="#2c3e50", label="Radial RMSE")
-    ax_err.scatter(
-        layer_idx,
-        radial_rmse,
-        c=["#2ecc71" if p else "#e74c3c" for p in pass_flags],
-        s=16,
+    ax_err.errorbar(
+        mean_x_all,
+        y_x,
+        xerr=std_x_all,
+        fmt="o",
+        markersize=3.5,
+        linewidth=1.0,
+        capsize=2.5,
+        color="#1f77b4",
+        ecolor="#1f77b4",
+        label="X mean ± std",
         zorder=3,
     )
-    ax_err.plot(
-        layer_idx,
-        worst_axis_error,
-        "--",
-        linewidth=0.9,
-        color="#e67e22",
-        label="Worst axis max",
+    ax_err.errorbar(
+        mean_y_all,
+        y_y,
+        xerr=std_y_all,
+        fmt="s",
+        markersize=3.2,
+        linewidth=1.0,
+        capsize=2.5,
+        color="#ff7f0e",
+        ecolor="#ff7f0e",
+        label="Y mean ± std",
+        zorder=3,
     )
-    ax_err.axhspan(
-        0,
+    ax_err.scatter(
+        mean_x_all,
+        y_x,
+        c=["#2ecc71" if p else "#e74c3c" for p in pass_flags],
+        s=14,
+        zorder=4,
+        edgecolors="white",
+        linewidths=0.3,
+    )
+    ax_err.scatter(
+        mean_y_all,
+        y_y,
+        c=["#2ecc71" if p else "#e74c3c" for p in pass_flags],
+        s=14,
+        zorder=4,
+        edgecolors="white",
+        linewidths=0.3,
+        marker="s",
+    )
+    ax_err.axvline(0, linewidth=0.9, color="#7f8c8d", alpha=0.9)
+    ax_err.axvline(
+        THRESHOLDS["mean_diff_mm"],
+        linestyle="--",
+        linewidth=0.8,
+        color="#95a5a6",
+        alpha=0.8,
+    )
+    ax_err.axvline(
+        -THRESHOLDS["mean_diff_mm"],
+        linestyle="--",
+        linewidth=0.8,
+        color="#95a5a6",
+        alpha=0.8,
+        label=f"±{THRESHOLDS['mean_diff_mm']} mm mean target",
+    )
+    ax_err.axvline(
         THRESHOLDS["max_abs_diff_mm"],
-        alpha=0.10,
-        color="#2ecc71",
-        label=f"\u2264 {THRESHOLDS['max_abs_diff_mm']} mm target",
+        linestyle=":",
+        linewidth=0.8,
+        color="#bdc3c7",
+        alpha=0.9,
     )
-    ax_err.set_xlabel("Layer", fontsize=7)
-    ax_err.set_ylabel("Error (mm)", fontsize=7)
+    ax_err.axvline(
+        -THRESHOLDS["max_abs_diff_mm"],
+        linestyle=":",
+        linewidth=0.8,
+        color="#bdc3c7",
+        alpha=0.9,
+        label=f"±{THRESHOLDS['max_abs_diff_mm']} mm max limit",
+    )
+    ax_err.set_xlabel("Deviation (mm)", fontsize=7)
+    ax_err.set_ylabel("Layer", fontsize=7)
     ax_err.set_title("Layer Trend", fontsize=9)
+    ax_err.set_yticks(layer_idx)
+    ax_err.set_yticklabels(layer_labels)
+    ax_err.set_ylim(num_layers + 0.6, 0.4)
     ax_err.tick_params(labelsize=6)
-    ax_err.grid(True, alpha=0.3)
+    ax_err.grid(True, alpha=0.3, axis="x")
     if num_layers > 25:
-        ax_err.tick_params(axis="x", rotation=90, labelsize=4)
+        ax_err.tick_params(axis="y", labelsize=4)
     ax_err.legend(fontsize=5, loc="upper left")
 
     # --- Middle-right: All-layer heatmap ---
     right_gs = middle_gs[0, 1].subgridspec(
-        3, 1,
-        height_ratios=[0.78, 0.13, 0.09],
+        2, 2,
+        height_ratios=[0.90, 0.10],
+        width_ratios=[0.90, 0.10],
         hspace=0.18,
+        wspace=0.08,
     )
     ax_heatmap = fig.add_subplot(right_gs[0, 0])
-    ax_heatmap_flags = fig.add_subplot(right_gs[1, 0])
-    ax_heatmap_cbar = fig.add_subplot(right_gs[2, 0])
+    ax_heatmap_flags = fig.add_subplot(right_gs[0, 1])
+    ax_heatmap_cbar = fig.add_subplot(right_gs[1, :])
     heatmap_values = np.array([
         np.abs(mean_x_all),
         np.abs(mean_y_all),
@@ -844,7 +969,7 @@ def _generate_summary_page(
     worst_order = np.argsort(worst_axis_error)[::-1][: min(5, num_layers)]
     if len(worst_order) > 0:
         worst_lines = [
-            f"L{layer_labels[idx]}: max {worst_axis_error[idx]:.2f} mm, radial {radial_rmse[idx]:.2f} mm"
+            f"L{layer_labels[idx]}: max_x {max_x_all[idx]:.2f} mm, max_y {max_y_all[idx]:.2f} mm"
             for idx in worst_order
         ]
         ax_worst.text(

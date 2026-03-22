@@ -181,9 +181,12 @@ class TestReportGenerator(unittest.TestCase):
             [0.1, 0.2, 0.3, 0.4],
             [0.5, 0.6, 0.7, 0.8],
             [0.9, 1.0, 1.1, 1.2],
+            [0.2, 0.3, 0.4, 0.5],
+            [0.6, 0.7, 0.8, 0.9],
+            [1.0, 1.1, 1.2, 1.3],
         ])
         layer_labels = ["1", "2", "3", "4"]
-        metric_labels = ["|mu_x|", "|mu_y|", "max"]
+        metric_labels = ["Mean", "Std", "Max", "Mean", "Std", "Max"]
         flag_rows = {
             "Fail": [False, True, False, False],
             "Fallback": [False, False, True, False],
@@ -198,9 +201,49 @@ class TestReportGenerator(unittest.TestCase):
             flag_rows=flag_rows,
         )
 
-        self.assertEqual((3, 4), image.get_array().shape)
-        self.assertEqual((2, 4), flag_image.get_array().shape)
+        self.assertEqual((4, 6), image.get_array().shape)
+        self.assertEqual((4, 1), flag_image.get_array().shape)
         self.assertEqual("Layer Heatmap", ax.get_title())
+        self.assertEqual("Metric", ax.get_xlabel())
+        self.assertEqual("Layer", ax.get_ylabel())
+        self.assertEqual(
+            ["Mean", "Std", "Max", "Mean", "Std", "Max"],
+            [tick.get_text() for tick in ax.get_xticklabels()],
+        )
+        self.assertTrue(all(tick.get_rotation() == 0 for tick in ax.get_xticklabels()))
+        group_labels = [text.get_text() for text in ax.texts]
+        self.assertIn("X", group_labels)
+        self.assertIn("Y", group_labels)
+        plt.close(fig)
+
+    def test_draw_layer_heatmap_uses_prioritized_abbreviated_flag_column(self):
+        fig, ax = plt.subplots(figsize=(6, 4))
+        heatmap_values = np.array([
+            [0.1, 0.2, 0.3, 0.4],
+            [0.5, 0.6, 0.7, 0.8],
+        ])
+        layer_labels = ["1", "2", "3", "4"]
+        metric_labels = ["Mean", "Std"]
+        flag_rows = {
+            "Fallback": [False, True, False, False],
+            "Settle": [False, False, True, False],
+            "Overlap": [False, False, False, True],
+            "Fail": [True, False, False, False],
+        }
+
+        _, flag_image = _draw_layer_heatmap(
+            fig,
+            ax,
+            heatmap_values,
+            layer_labels,
+            metric_labels,
+            flag_rows=flag_rows,
+        )
+
+        self.assertIsNotNone(flag_image)
+        flag_ax = flag_image.axes
+        rendered_chars = [text.get_text() for text in flag_ax.texts]
+        self.assertEqual(["FAIL", "FB", "NS", "OV"], rendered_chars)
         plt.close(fig)
 
     def test_generate_summary_page_uses_trend_and_heatmap_panels(self):
@@ -213,6 +256,20 @@ class TestReportGenerator(unittest.TestCase):
         self.assertIn("Layer Heatmap", axes_by_title)
         self.assertGreaterEqual(len(axes_by_title["Layer Trend"].get_yticks()), 2)
         self.assertEqual(1, len(axes_by_title["Layer Heatmap"].images))
+        plt.close(fig)
+
+    def test_summary_page_uses_horizontal_xy_errorbar_trend(self):
+        beam_data = self.report_data["Beam 1"]
+
+        fig = _generate_summary_page("Beam 1", beam_data)
+        axes_by_title = {ax.get_title(): ax for ax in fig.axes if ax.get_title()}
+        trend_ax = axes_by_title["Layer Trend"]
+        _, legend_labels = trend_ax.get_legend_handles_labels()
+
+        self.assertEqual("Deviation (mm)", trend_ax.get_xlabel())
+        self.assertEqual("Layer", trend_ax.get_ylabel())
+        self.assertIn("X mean ± std", legend_labels)
+        self.assertIn("Y mean ± std", legend_labels)
         plt.close(fig)
 
     def test_layer_passes_uses_filtered_metrics_when_requested(self):
