@@ -117,6 +117,199 @@ def _calculate_stats_with_fallback(primary_x, primary_y, fallback_x, fallback_y)
     )
 
 
+def _missing_required_keys(data, keys):
+    for key in keys:
+        if key not in data:
+            return key
+    return None
+
+
+def _prepare_plan_and_log_arrays(plan_layer, log_data):
+    plan_time_s = np.asarray(plan_layer['time_axis_s'], dtype=float)
+    plan_x = np.asarray(plan_layer['trajectory_x_mm'], dtype=float)
+    plan_y = np.asarray(plan_layer['trajectory_y_mm'], dtype=float)
+    log_time_ms = np.asarray(log_data['time_ms'], dtype=float)
+    log_time_s = (log_time_ms - float(log_time_ms[0])) / 1000.0
+    log_x = np.asarray(log_data['x'], dtype=float)
+    log_y = np.asarray(log_data['y'], dtype=float)
+    return plan_time_s, plan_x, plan_y, log_time_s, log_x, log_y
+
+
+def _interpolate_plan_series(plan_layer, log_data, plan_time_s, log_time_s):
+    interp_plan_x = np.interp(log_time_s, plan_time_s, plan_layer['trajectory_x_mm'])
+    interp_plan_y = np.interp(log_time_s, plan_time_s, plan_layer['trajectory_y_mm'])
+    plan_cumulative_mu = _get_optional_series(
+        plan_layer,
+        "cumulative_mu",
+        len(plan_time_s),
+        "plan_layer",
+    )
+    interp_plan_mu = np.interp(log_time_s, plan_time_s, plan_cumulative_mu)
+    log_mu = _get_optional_series(log_data, "mu", len(log_time_s), "log_data")
+    return interp_plan_x, interp_plan_y, interp_plan_mu, log_mu
+
+
+def _calculate_log_velocity(log_time_s, log_x, log_y):
+    dx = np.diff(log_x, prepend=log_x[0])
+    dy = np.diff(log_y, prepend=log_y[0])
+    dt = np.diff(log_time_s, prepend=log_time_s[0])
+    log_velocity_mm_s = np.zeros_like(dt)
+    nonzero_dt = dt > 0
+    log_velocity_mm_s[nonzero_dt] = (
+        np.sqrt(dx[nonzero_dt] ** 2 + dy[nonzero_dt] ** 2) / dt[nonzero_dt]
+    )
+    return log_velocity_mm_s
+
+
+def _normalized_spot_series(plan_layer, plan_time_s):
+    spot_mu = np.asarray(
+        plan_layer.get("mu", np.zeros(len(plan_time_s), dtype=float)),
+        dtype=float,
+    )
+    if spot_mu.shape[0] != len(plan_time_s):
+        spot_mu = np.zeros(len(plan_time_s), dtype=float)
+
+    spot_is_transit_min_dose = np.asarray(
+        plan_layer.get(
+            "spot_is_transit_min_dose",
+            np.zeros(len(plan_time_s), dtype=bool),
+        ),
+        dtype=bool,
+    )
+    if spot_is_transit_min_dose.shape[0] != len(plan_time_s):
+        spot_is_transit_min_dose = np.zeros(len(plan_time_s), dtype=bool)
+
+    spot_scan_speed_mm_s = np.asarray(
+        plan_layer.get(
+            "spot_scan_speed_mm_s",
+            np.zeros(len(plan_time_s), dtype=float),
+        ),
+        dtype=float,
+    )
+    if spot_scan_speed_mm_s.shape[0] != len(plan_time_s):
+        spot_scan_speed_mm_s = np.zeros(len(plan_time_s), dtype=float)
+
+    return spot_mu, spot_is_transit_min_dose, spot_scan_speed_mm_s
+
+
+def _boundary_carryover_mask(config, plan_time_s, log_time_s, assigned_spot_index, spot_is_transit_min_dose):
+    sample_is_boundary_carryover = np.zeros(len(log_time_s), dtype=bool)
+    boundary_holdoff_s = float(
+        config.get(
+            "ZERO_DOSE_BOUNDARY_HOLDOFF_S",
+            DEFAULT_ZERO_DOSE_BOUNDARY_HOLDOFF_S,
+        )
+    )
+    post_minimal_dose_boundary_s = float(
+        config.get(
+            "ZERO_DOSE_POST_MINIMAL_DOSE_BOUNDARY_S",
+            DEFAULT_ZERO_DOSE_POST_MINIMAL_DOSE_BOUNDARY_S,
+        )
+    )
+    treatment_after_transit = np.flatnonzero(
+        (~spot_is_transit_min_dose[1:]) & spot_is_transit_min_dose[:-1]
+    ) + 1
+    for spot_idx in treatment_after_transit:
+        spot_start_s = plan_time_s[spot_idx - 1]
+        spot_samples = assigned_spot_index == spot_idx
+        elapsed_s = log_time_s - spot_start_s
+        if boundary_holdoff_s > 0:
+            sample_is_boundary_carryover |= spot_samples & (elapsed_s < boundary_holdoff_s)
+        if post_minimal_dose_boundary_s > 0:
+            sample_is_boundary_carryover |= (
+                spot_samples
+                & (elapsed_s >= 0)
+                & (elapsed_s < post_minimal_dose_boundary_s)
+            )
+    return sample_is_boundary_carryover
+
+
+def _fit_histogram(diff):
+    bins = np.arange(
+        HISTOGRAM_RANGE_MM[0],
+        HISTOGRAM_RANGE_MM[1] + HISTOGRAM_BIN_STEP,
+        HISTOGRAM_BIN_STEP,
+    )
+    hist, _ = np.histogram(diff, bins=bins, density=True)
+    bin_centers = (bins[:-1] + bins[1:]) / 2
+    try:
+        hist_sum = np.sum(hist)
+        if hist_sum > 0 and not np.isinf(hist_sum) and not np.isnan(hist_sum):
+            params, _ = curve_fit(gaussian, bin_centers, hist, p0=[1, 0, 1])
+        else:
+            params = [0, 0, 0]
+    except RuntimeError:
+        params = [0, 0, 0]
+    return {
+        'amplitude': params[0],
+        'mean': params[1],
+        'stddev': params[2],
+    }
+
+
+def _write_debug_csv(
+    csv_filename,
+    log_time_s,
+    interp_plan_x,
+    interp_plan_y,
+    log_x,
+    log_y,
+    log_data,
+    is_settling,
+    log_velocity_mm_s,
+    interp_plan_mu,
+    log_mu,
+    assigned_spot_index,
+    spot_mu,
+    spot_scan_speed_mm_s,
+    sample_is_transit_min_dose,
+    sample_is_boundary_carryover,
+    sample_is_included_filtered_stats,
+):
+    data_to_save = np.column_stack((
+        log_time_s,
+        interp_plan_x,
+        interp_plan_y,
+        log_x,
+        log_y,
+        log_data['x_raw'],
+        log_data['y_raw'],
+        log_data['layer_num'],
+        log_data['beam_on_off'],
+        is_settling.astype(int),
+        log_velocity_mm_s,
+        interp_plan_mu,
+        log_mu,
+        assigned_spot_index,
+        spot_mu[assigned_spot_index],
+        spot_scan_speed_mm_s[assigned_spot_index],
+        sample_is_transit_min_dose.astype(int),
+        sample_is_boundary_carryover.astype(int),
+        sample_is_included_filtered_stats.astype(int),
+    ))
+    header = (
+        "log_time_s,interp_plan_x,interp_plan_y,log_x,log_y,x_raw,y_raw,"
+        "layer_num,beam_on_off,is_settling,log_velocity_mm_s,interp_plan_mu,log_mu,"
+        "assigned_spot_index,assigned_spot_mu,assigned_spot_scan_speed_mm_s,"
+        "sample_is_transit_min_dose,sample_is_boundary_carryover,"
+        "sample_is_included_filtered_stats"
+    )
+    np.savetxt(csv_filename, data_to_save, delimiter=",", header=header, comments="")
+
+
+def _store_axis_stats(results, prefix, stats_x, stats_y):
+    results[f'{prefix}mean_diff_x'] = stats_x['mean']
+    results[f'{prefix}mean_diff_y'] = stats_y['mean']
+    results[f'{prefix}std_diff_x'] = stats_x['std']
+    results[f'{prefix}std_diff_y'] = stats_y['std']
+    results[f'{prefix}rmse_x'] = stats_x['rmse']
+    results[f'{prefix}rmse_y'] = stats_y['rmse']
+    results[f'{prefix}max_abs_diff_x'] = stats_x['max_abs']
+    results[f'{prefix}max_abs_diff_y'] = stats_y['max_abs']
+    results[f'{prefix}p95_abs_diff_x'] = stats_x['p95_abs']
+    results[f'{prefix}p95_abs_diff_y'] = stats_y['p95_abs']
+
+
 def calculate_differences_for_layer(
     plan_layer,
     log_data,
@@ -139,45 +332,32 @@ def calculate_differences_for_layer(
     """
     results = {}
 
-    for key in ('time_axis_s', 'trajectory_x_mm', 'trajectory_y_mm'):
-        if key not in plan_layer:
-            return {'error': f"Missing required plan_layer key: '{key}'"}
+    missing_plan_key = _missing_required_keys(
+        plan_layer,
+        ('time_axis_s', 'trajectory_x_mm', 'trajectory_y_mm'),
+    )
+    if missing_plan_key is not None:
+        return {'error': f"Missing required plan_layer key: '{missing_plan_key}'"}
 
-    for key in ('time_ms', 'x', 'y'):
-        if key not in log_data:
-            return {'error': f"Missing required log_data key: '{key}'"}
+    missing_log_key = _missing_required_keys(log_data, ('time_ms', 'x', 'y'))
+    if missing_log_key is not None:
+        return {'error': f"Missing required log_data key: '{missing_log_key}'"}
 
-    plan_time_s = np.asarray(plan_layer['time_axis_s'], dtype=float)
-    plan_x = np.asarray(plan_layer['trajectory_x_mm'], dtype=float)
-    plan_y = np.asarray(plan_layer['trajectory_y_mm'], dtype=float)
-
-    log_time_s = (np.asarray(log_data['time_ms'], dtype=float) -
-                  float(log_data['time_ms'][0])) / 1000.0
-    log_x = np.asarray(log_data['x'], dtype=float)
-    log_y = np.asarray(log_data['y'], dtype=float)
+    plan_time_s, plan_x, plan_y, log_time_s, log_x, log_y = _prepare_plan_and_log_arrays(
+        plan_layer,
+        log_data,
+    )
 
     if len(plan_time_s) == 0 or len(log_time_s) == 0:
         return {'error': 'Empty data arrays'}
 
-    interp_plan_x = np.interp(log_time_s, plan_time_s, plan_x)
-    interp_plan_y = np.interp(log_time_s, plan_time_s, plan_y)
-    plan_cumulative_mu = _get_optional_series(
+    interp_plan_x, interp_plan_y, interp_plan_mu, log_mu = _interpolate_plan_series(
         plan_layer,
-        "cumulative_mu",
-        len(plan_time_s),
-        "plan_layer",
+        log_data,
+        plan_time_s,
+        log_time_s,
     )
-    interp_plan_mu = np.interp(log_time_s, plan_time_s, plan_cumulative_mu)
-    log_mu = _get_optional_series(log_data, "mu", len(log_time_s), "log_data")
-
-    dx = np.diff(log_x, prepend=log_x[0])
-    dy = np.diff(log_y, prepend=log_y[0])
-    dt = np.diff(log_time_s, prepend=log_time_s[0])
-    log_velocity_mm_s = np.zeros_like(dt)
-    nonzero_dt = dt > 0
-    log_velocity_mm_s[nonzero_dt] = (
-        np.sqrt(dx[nonzero_dt] ** 2 + dy[nonzero_dt] ** 2) / dt[nonzero_dt]
-    )
+    log_velocity_mm_s = _calculate_log_velocity(log_time_s, log_x, log_y)
 
     diff_x = interp_plan_x - log_x
     diff_y = interp_plan_y - log_y
@@ -201,66 +381,19 @@ def calculate_differences_for_layer(
     stats_diff_y = diff_y[settled_mask] if np.any(settled_mask) else diff_y
 
     assigned_spot_index = _assign_samples_to_spots(log_time_s, plan_time_s)
-    spot_mu = np.asarray(
-        plan_layer.get("mu", np.zeros(len(plan_time_s), dtype=float)),
-        dtype=float,
+    spot_mu, spot_is_transit_min_dose, spot_scan_speed_mm_s = _normalized_spot_series(
+        plan_layer,
+        plan_time_s,
     )
-    if spot_mu.shape[0] != len(plan_time_s):
-        spot_mu = np.zeros(len(plan_time_s), dtype=float)
-    spot_is_transit_min_dose = np.asarray(
-        plan_layer.get(
-            "spot_is_transit_min_dose",
-            np.zeros(len(plan_time_s), dtype=bool),
-        ),
-        dtype=bool,
-    )
-    if spot_is_transit_min_dose.shape[0] != len(plan_time_s):
-        spot_is_transit_min_dose = np.zeros(len(plan_time_s), dtype=bool)
-    spot_scan_speed_mm_s = np.asarray(
-        plan_layer.get(
-            "spot_scan_speed_mm_s",
-            np.zeros(len(plan_time_s), dtype=float),
-        ),
-        dtype=float,
-    )
-    if spot_scan_speed_mm_s.shape[0] != len(plan_time_s):
-        spot_scan_speed_mm_s = np.zeros(len(plan_time_s), dtype=float)
 
     sample_is_transit_min_dose = spot_is_transit_min_dose[assigned_spot_index]
-    sample_is_boundary_carryover = np.zeros(len(diff_x), dtype=bool)
-    boundary_holdoff_s = float(
-        config.get(
-            "ZERO_DOSE_BOUNDARY_HOLDOFF_S",
-            DEFAULT_ZERO_DOSE_BOUNDARY_HOLDOFF_S,
-        )
+    sample_is_boundary_carryover = _boundary_carryover_mask(
+        config,
+        plan_time_s,
+        log_time_s,
+        assigned_spot_index,
+        spot_is_transit_min_dose,
     )
-    post_minimal_dose_boundary_s = float(
-        config.get(
-            "ZERO_DOSE_POST_MINIMAL_DOSE_BOUNDARY_S",
-            DEFAULT_ZERO_DOSE_POST_MINIMAL_DOSE_BOUNDARY_S,
-        )
-    )
-    treatment_after_transit = np.flatnonzero(
-        (~spot_is_transit_min_dose[1:]) & spot_is_transit_min_dose[:-1]
-    ) + 1
-    if boundary_holdoff_s > 0:
-        for spot_idx in treatment_after_transit:
-            spot_start_s = plan_time_s[spot_idx - 1]
-            spot_samples = assigned_spot_index == spot_idx
-            sample_is_boundary_carryover |= (
-                spot_samples
-                & ((log_time_s - spot_start_s) < boundary_holdoff_s)
-            )
-    if post_minimal_dose_boundary_s > 0:
-        for spot_idx in treatment_after_transit:
-            spot_start_s = plan_time_s[spot_idx - 1]
-            spot_samples = assigned_spot_index == spot_idx
-            elapsed_s = log_time_s - spot_start_s
-            sample_is_boundary_carryover |= (
-                spot_samples
-                & (elapsed_s >= 0)
-                & (elapsed_s < post_minimal_dose_boundary_s)
-            )
 
     zero_dose_filter_enabled = bool(config.get("ZERO_DOSE_FILTER_ENABLED", False))
     filtered_mask = (
@@ -299,35 +432,25 @@ def calculate_differences_for_layer(
     # Save to CSV if requested
     if save_to_csv:
         logger.info(f"Saving data to {csv_filename}")
-        data_to_save = np.column_stack((
+        _write_debug_csv(
+            csv_filename,
             log_time_s,
             interp_plan_x,
             interp_plan_y,
             log_x,
             log_y,
-            log_data['x_raw'],
-            log_data['y_raw'],
-            log_data['layer_num'],
-            log_data['beam_on_off'],
-            is_settling.astype(int),
+            log_data,
+            is_settling,
             log_velocity_mm_s,
             interp_plan_mu,
             log_mu,
             assigned_spot_index,
-            spot_mu[assigned_spot_index],
-            spot_scan_speed_mm_s[assigned_spot_index],
-            sample_is_transit_min_dose.astype(int),
-            sample_is_boundary_carryover.astype(int),
-            sample_is_included_filtered_stats.astype(int),
-        ))
-        header = (
-            "log_time_s,interp_plan_x,interp_plan_y,log_x,log_y,x_raw,y_raw,"
-            "layer_num,beam_on_off,is_settling,log_velocity_mm_s,interp_plan_mu,log_mu,"
-            "assigned_spot_index,assigned_spot_mu,assigned_spot_scan_speed_mm_s,"
-            "sample_is_transit_min_dose,sample_is_boundary_carryover,"
-            "sample_is_included_filtered_stats"
+            spot_mu,
+            spot_scan_speed_mm_s,
+            sample_is_transit_min_dose,
+            sample_is_boundary_carryover,
+            sample_is_included_filtered_stats,
         )
-        np.savetxt(csv_filename, data_to_save, delimiter=",", header=header, comments="")
 
     results['diff_x'] = diff_x
     results['diff_y'] = diff_y
@@ -342,68 +465,21 @@ def calculate_differences_for_layer(
     results['sample_is_boundary_carryover'] = sample_is_boundary_carryover
     results['sample_is_included_filtered_stats'] = sample_is_included_filtered_stats
 
-    bins = np.arange(HISTOGRAM_RANGE_MM[0], HISTOGRAM_RANGE_MM[1] + HISTOGRAM_BIN_STEP, HISTOGRAM_BIN_STEP)
-    hist_x, _ = np.histogram(stats_diff_x, bins=bins, density=True)
-    hist_y, _ = np.histogram(stats_diff_y, bins=bins, density=True)
-    bin_centers = (bins[:-1] + bins[1:]) / 2
-
-    try:
-        if (np.sum(hist_x) > 0 and not np.isinf(np.sum(hist_x)) and not
-                np.isnan(np.sum(hist_x))):
-            params_x, _ = curve_fit(
-                gaussian, bin_centers, hist_x, p0=[1, 0, 1])
-        else:
-            params_x = [0, 0, 0]
-        if (np.sum(hist_y) > 0 and not np.isinf(np.sum(hist_y)) and not
-                np.isnan(np.sum(hist_y))):
-            params_y, _ = curve_fit(
-                gaussian, bin_centers, hist_y, p0=[1, 0, 1])
-        else:
-            params_y = [0, 0, 0]
-        results['hist_fit_x'] = {
-            'amplitude': params_x[0],
-            'mean': params_x[1],
-            'stddev': params_x[2]
-        }
-        results['hist_fit_y'] = {
-            'amplitude': params_y[0],
-            'mean': params_y[1],
-            'stddev': params_y[2]
-        }
-    except RuntimeError:
-        results['hist_fit_x'] = {'amplitude': 0, 'mean': 0, 'stddev': 0}
-        results['hist_fit_y'] = {'amplitude': 0, 'mean': 0, 'stddev': 0}
+    results['hist_fit_x'] = _fit_histogram(stats_diff_x)
+    results['hist_fit_y'] = _fit_histogram(stats_diff_y)
 
     # Add missing keys expected by report generator
     results['plan_positions'] = np.column_stack((interp_plan_x, interp_plan_y))
     results['log_positions'] = np.column_stack((log_x, log_y))
     stats_x = _calculate_axis_stats(stats_diff_x)
     stats_y = _calculate_axis_stats(stats_diff_y)
-    results['mean_diff_x'] = stats_x['mean']
-    results['mean_diff_y'] = stats_y['mean']
-    results['std_diff_x'] = stats_x['std']
-    results['std_diff_y'] = stats_y['std']
-    results['rmse_x'] = stats_x['rmse']
-    results['rmse_y'] = stats_y['rmse']
-    results['max_abs_diff_x'] = stats_x['max_abs']
-    results['max_abs_diff_y'] = stats_y['max_abs']
-    results['p95_abs_diff_x'] = stats_x['p95_abs']
-    results['p95_abs_diff_y'] = stats_y['p95_abs']
+    _store_axis_stats(results, "", stats_x, stats_y)
     results['time_overlap_fraction'] = overlap
 
     if zero_dose_filter_enabled:
         results['filtered_diff_x'] = filtered_diff_x
         results['filtered_diff_y'] = filtered_diff_y
-        results['filtered_mean_diff_x'] = filtered_stats_x['mean']
-        results['filtered_mean_diff_y'] = filtered_stats_y['mean']
-        results['filtered_std_diff_x'] = filtered_stats_x['std']
-        results['filtered_std_diff_y'] = filtered_stats_y['std']
-        results['filtered_rmse_x'] = filtered_stats_x['rmse']
-        results['filtered_rmse_y'] = filtered_stats_y['rmse']
-        results['filtered_max_abs_diff_x'] = filtered_stats_x['max_abs']
-        results['filtered_max_abs_diff_y'] = filtered_stats_y['max_abs']
-        results['filtered_p95_abs_diff_x'] = filtered_stats_x['p95_abs']
-        results['filtered_p95_abs_diff_y'] = filtered_stats_y['p95_abs']
+        _store_axis_stats(results, "filtered_", filtered_stats_x, filtered_stats_y)
         results['filtered_stats_fallback_to_raw'] = filtered_stats_fallback_to_raw
         results['num_filtered_samples'] = int(np.sum(settled_mask & (~filtered_mask)))
         results['num_included_samples'] = int(np.sum(filtered_mask))

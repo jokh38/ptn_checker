@@ -150,6 +150,92 @@ def _classify_transit_min_dose_spots(
     return transit, scan_speed
 
 
+def _zero_dose_classifier_config(zero_dose_config: dict | None) -> dict | None:
+    if not zero_dose_config:
+        return None
+    return {
+        "max_mu": zero_dose_config.get(
+            "ZERO_DOSE_MAX_MU",
+            DEFAULT_ZERO_DOSE_FILTER["max_mu"],
+        ),
+        "machine_min_mu": zero_dose_config.get(
+            "ZERO_DOSE_MACHINE_MIN_MU",
+            DEFAULT_ZERO_DOSE_FILTER["machine_min_mu"],
+        ),
+        "min_scan_speed_mm_s": zero_dose_config.get(
+            "ZERO_DOSE_MIN_SCAN_SPEED_MM_S",
+            DEFAULT_ZERO_DOSE_FILTER["min_scan_speed_mm_s"],
+        ),
+        "min_run_length": zero_dose_config.get(
+            "ZERO_DOSE_MIN_RUN_LENGTH",
+            DEFAULT_ZERO_DOSE_FILTER["min_run_length"],
+        ),
+        "keep_first_zero_mu_spot": zero_dose_config.get(
+            "ZERO_DOSE_KEEP_FIRST_ZERO_MU_SPOT",
+            DEFAULT_ZERO_DOSE_FILTER["keep_first_zero_mu_spot"],
+        ),
+    }
+
+
+def _decode_positions(pos_map_bytes):
+    positions = []
+    for idx in range(0, len(pos_map_bytes), 8):
+        x_bytes = pos_map_bytes[idx + 2:idx + 4]
+        y_bytes = pos_map_bytes[idx + 6:idx + 8]
+        positions.append((F_SHI_spotP(x_bytes), F_SHI_spotP(y_bytes)))
+    return np.array(positions)
+
+
+def _decode_weights(mu_map_bytes):
+    return np.array(
+        [F_SHI_spotW(mu_map_bytes[idx:idx + 4]) for idx in range(0, len(mu_map_bytes), 4)]
+    )
+
+
+def _weights_to_mu(weights, total_mu_for_layer):
+    total_weight = float(np.sum(weights))
+    if total_weight > 0:
+        return weights / total_weight * float(total_mu_for_layer)
+    return np.zeros(len(weights), dtype=float)
+
+
+def _build_layer_record(cp_start, cp_end, zero_dose_config):
+    pos_map_bytes = cp_start[0x300b, 0x1094].value
+    mu_map_bytes = cp_start[0x300b, 0x1096].value
+    positions_array = _decode_positions(pos_map_bytes)
+    weights = _decode_weights(mu_map_bytes)
+    mus_array = _weights_to_mu(
+        weights,
+        cp_end.CumulativeMetersetWeight - cp_start.CumulativeMetersetWeight,
+    )
+    energy = float(getattr(cp_start, 'NominalBeamEnergy', 0.0))
+    trajectory = build_layer_time_trajectory(
+        positions_cm=positions_array * 0.1,
+        mu=mus_array,
+        energy=energy,
+    )
+    spot_is_transit_min_dose, spot_scan_speed_mm_s = _classify_transit_min_dose_spots(
+        positions_mm=positions_array,
+        mu=mus_array,
+        segment_times_s=trajectory["segment_times_s"],
+        zero_dose_config=_zero_dose_classifier_config(zero_dose_config),
+    )
+    return {
+        'positions': positions_array,
+        'mu': mus_array,
+        'cumulative_mu': np.cumsum(mus_array),
+        'energy': energy,
+        'time_axis_s': trajectory['time_axis_s'],
+        'trajectory_x_mm': trajectory['x_cm'] * 10.0,
+        'trajectory_y_mm': trajectory['y_cm'] * 10.0,
+        'segment_times_s': trajectory['segment_times_s'],
+        'layer_doserate_mu_per_s': trajectory['layer_doserate_mu_per_s'],
+        'total_time_s': trajectory['total_time_s'],
+        'spot_is_transit_min_dose': spot_is_transit_min_dose,
+        'spot_scan_speed_mm_s': spot_scan_speed_mm_s,
+    }
+
+
 def parse_dcm_file(file_path: str, zero_dose_config: dict | None = None) -> dict:
     """
     Parses a DICOM RTPLAN file to extract spot positions and MUs.
@@ -188,79 +274,9 @@ def parse_dcm_file(file_path: str, zero_dose_config: dict | None = None) -> dict
             layer_index = int(cp_start.ControlPointIndex)
             if (0x300b, 0x1094) not in cp_start:
                 continue
-            pos_map_bytes = cp_start[0x300b, 0x1094].value
-            mu_map_bytes = cp_start[0x300b, 0x1096].value
-            positions = []
-            for j in range(0, len(pos_map_bytes), 8):
-                x_bytes = pos_map_bytes[j+2:j+4]
-                y_bytes = pos_map_bytes[j+6:j+8]
-                x = F_SHI_spotP(x_bytes)
-                y = F_SHI_spotP(y_bytes)
-                positions.append((x, y))
-            weights = []
-            for j in range(0, len(mu_map_bytes), 4):
-                weight = F_SHI_spotW(mu_map_bytes[j:j+4])
-                weights.append(weight)
-            total_mu_for_layer = (cp_end.CumulativeMetersetWeight -
-                                  cp_start.CumulativeMetersetWeight)
-            total_weight = sum(weights)
-            if total_weight > 0:
-                mus = [w / total_weight * total_mu_for_layer
-                       for w in weights]
-            else:
-                mus = [0.0] * len(weights)
-            positions_array = np.array(positions)
-            mus_array = np.array(mus)
-            energy = float(getattr(cp_start, 'NominalBeamEnergy', 0.0))
-            trajectory = build_layer_time_trajectory(
-                positions_cm=positions_array * 0.1,
-                mu=mus_array,
-                energy=energy,
+            plan_data['beams'][beam_number]['layers'][layer_index] = _build_layer_record(
+                cp_start,
+                cp_end,
+                zero_dose_config,
             )
-            classifier_config = None
-            if zero_dose_config:
-                classifier_config = {
-                    "max_mu": zero_dose_config.get(
-                        "ZERO_DOSE_MAX_MU",
-                        DEFAULT_ZERO_DOSE_FILTER["max_mu"],
-                    ),
-                    "machine_min_mu": zero_dose_config.get(
-                        "ZERO_DOSE_MACHINE_MIN_MU",
-                        DEFAULT_ZERO_DOSE_FILTER["machine_min_mu"],
-                    ),
-                    "min_scan_speed_mm_s": zero_dose_config.get(
-                        "ZERO_DOSE_MIN_SCAN_SPEED_MM_S",
-                        DEFAULT_ZERO_DOSE_FILTER["min_scan_speed_mm_s"],
-                    ),
-                    "min_run_length": zero_dose_config.get(
-                        "ZERO_DOSE_MIN_RUN_LENGTH",
-                        DEFAULT_ZERO_DOSE_FILTER["min_run_length"],
-                    ),
-                    "keep_first_zero_mu_spot": zero_dose_config.get(
-                        "ZERO_DOSE_KEEP_FIRST_ZERO_MU_SPOT",
-                        DEFAULT_ZERO_DOSE_FILTER["keep_first_zero_mu_spot"],
-                    ),
-                }
-            spot_is_transit_min_dose, spot_scan_speed_mm_s = (
-                _classify_transit_min_dose_spots(
-                    positions_mm=positions_array,
-                    mu=mus_array,
-                    segment_times_s=trajectory["segment_times_s"],
-                    zero_dose_config=classifier_config,
-                )
-            )
-            plan_data['beams'][beam_number]['layers'][layer_index] = {
-                'positions': positions_array,
-                'mu': mus_array,
-                'cumulative_mu': np.cumsum(mus_array),
-                'energy': energy,
-                'time_axis_s': trajectory['time_axis_s'],
-                'trajectory_x_mm': trajectory['x_cm'] * 10.0,
-                'trajectory_y_mm': trajectory['y_cm'] * 10.0,
-                'segment_times_s': trajectory['segment_times_s'],
-                'layer_doserate_mu_per_s': trajectory['layer_doserate_mu_per_s'],
-                'total_time_s': trajectory['total_time_s'],
-                'spot_is_transit_min_dose': spot_is_transit_min_dose,
-                'spot_scan_speed_mm_s': spot_scan_speed_mm_s,
-            }
     return plan_data

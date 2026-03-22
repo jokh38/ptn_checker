@@ -4,7 +4,7 @@ import re
 
 import numpy as np
 
-from src.report_generator import _layer_passes, _metric_value, _spot_pass_summary
+from src.report_metrics import layer_passes, metric_value, spot_pass_summary
 
 
 CSV_FIELDNAMES = [
@@ -49,23 +49,23 @@ def _sanitize_filename(value):
 
 def _metric_row(results, report_mode):
     return {
-        "mean_diff_x_mm": _metric_value(results, "mean_diff_x", report_mode),
-        "mean_diff_y_mm": _metric_value(results, "mean_diff_y", report_mode),
-        "std_diff_x_mm": _metric_value(results, "std_diff_x", report_mode),
-        "std_diff_y_mm": _metric_value(results, "std_diff_y", report_mode),
-        "rmse_x_mm": _metric_value(results, "rmse_x", report_mode),
-        "rmse_y_mm": _metric_value(results, "rmse_y", report_mode),
-        "max_abs_diff_x_mm": _metric_value(results, "max_abs_diff_x", report_mode),
-        "max_abs_diff_y_mm": _metric_value(results, "max_abs_diff_y", report_mode),
-        "p95_abs_diff_x_mm": _metric_value(results, "p95_abs_diff_x", report_mode),
-        "p95_abs_diff_y_mm": _metric_value(results, "p95_abs_diff_y", report_mode),
+        "mean_diff_x_mm": metric_value(results, "mean_diff_x", report_mode),
+        "mean_diff_y_mm": metric_value(results, "mean_diff_y", report_mode),
+        "std_diff_x_mm": metric_value(results, "std_diff_x", report_mode),
+        "std_diff_y_mm": metric_value(results, "std_diff_y", report_mode),
+        "rmse_x_mm": metric_value(results, "rmse_x", report_mode),
+        "rmse_y_mm": metric_value(results, "rmse_y", report_mode),
+        "max_abs_diff_x_mm": metric_value(results, "max_abs_diff_x", report_mode),
+        "max_abs_diff_y_mm": metric_value(results, "max_abs_diff_y", report_mode),
+        "p95_abs_diff_x_mm": metric_value(results, "p95_abs_diff_x", report_mode),
+        "p95_abs_diff_y_mm": metric_value(results, "p95_abs_diff_y", report_mode),
     }
 
 
 def _build_layer_row(patient_id, patient_name, beam_name, beam_number, layer, report_mode):
     results = layer.get("results", {})
     layer_index = int(layer.get("layer_index", 0))
-    passed_spots, total_spots = _spot_pass_summary(results, report_mode=report_mode)
+    passed_spots, total_spots = spot_pass_summary(results, report_mode=report_mode)
     total_samples = len(np.asarray(results.get("diff_x", [])))
 
     if report_mode == "raw":
@@ -89,7 +89,7 @@ def _build_layer_row(patient_id, patient_name, beam_name, beam_number, layer, re
         "filtered_stats_fallback_to_raw": bool(
             results.get("filtered_stats_fallback_to_raw", False)
         ),
-        "layer_pass": _layer_passes(results, report_mode=report_mode),
+        "layer_pass": layer_passes(results, report_mode=report_mode),
         **_metric_row(results, report_mode),
         "time_overlap_fraction": results.get("time_overlap_fraction"),
         "settling_status": results.get("settling_status", ""),
@@ -108,6 +108,7 @@ def _build_layer_row(patient_id, patient_name, beam_name, beam_number, layer, re
 
 
 def export_report_csv(report_data, output_dir, report_mode="raw"):
+    """Write one per-beam CSV summary for the analyzed report data."""
     os.makedirs(output_dir, exist_ok=True)
     patient_id = report_data.get("_patient_id", "")
     patient_name = report_data.get("_patient_name", "")

@@ -245,10 +245,10 @@ class TestMain(unittest.TestCase):
                 "settling_status": "settled",
             }
 
-        with mock.patch.object(main, "parse_dcm_file", return_value=plan_data), mock.patch.object(
+        with mock.patch.object(main, "load_plan_and_machine_config", return_value=(plan_data, {})), mock.patch.object(
             main, "find_ptn_files", return_value=fake_ptn_files
         ), mock.patch.object(
-            main, "parse_ptn_file", return_value={"time_ms": np.array([0.0]), "x": np.array([0.0]), "y": np.array([0.0])}
+            main, "parse_ptn_with_optional_mu_correction", return_value={"time_ms": np.array([0.0]), "x": np.array([0.0]), "y": np.array([0.0])}
         ), mock.patch.object(
             main, "parse_planrange_for_directory", return_value={}
         ), mock.patch.object(
@@ -373,10 +373,8 @@ class TestMain(unittest.TestCase):
                 "settling_status": "settled",
             }
 
-        with mock.patch.object(main, "parse_dcm_file", return_value=plan_data), mock.patch.object(
-            main, "parse_scv_init", return_value={}
-        ), mock.patch.object(
-            main, "parse_ptn_file", return_value={"time_ms": np.array([0.0]), "x": np.array([0.0]), "y": np.array([0.0])}
+        with mock.patch.object(main, "load_plan_and_machine_config", return_value=(plan_data, {})), mock.patch.object(
+            main, "parse_ptn_with_optional_mu_correction", return_value={"time_ms": np.array([0.0]), "x": np.array([0.0]), "y": np.array([0.0])}
         ), mock.patch.object(
             main, "parse_planrange_for_directory", return_value={}
         ), mock.patch.object(
@@ -422,7 +420,7 @@ class TestMain(unittest.TestCase):
 
         parsed_files = []
 
-        def fake_parse_ptn_file(file_path, config):
+        def fake_parse_ptn_file(file_path, config, planrange_lookup):
             parsed_files.append(file_path)
             return {"time_ms": np.array([0.0]), "x": np.array([0.0]), "y": np.array([0.0])}
 
@@ -457,10 +455,8 @@ class TestMain(unittest.TestCase):
                 "settling_status": "settled",
             }
 
-        with mock.patch.object(main, "parse_dcm_file", return_value=plan_data), mock.patch.object(
-            main, "parse_scv_init", return_value={}
-        ), mock.patch.object(
-            main, "parse_ptn_file", side_effect=fake_parse_ptn_file
+        with mock.patch.object(main, "load_plan_and_machine_config", return_value=(plan_data, {})), mock.patch.object(
+            main, "parse_ptn_with_optional_mu_correction", side_effect=fake_parse_ptn_file
         ), mock.patch.object(
             main, "parse_planrange_for_directory", return_value={}
         ), mock.patch.object(
@@ -468,6 +464,8 @@ class TestMain(unittest.TestCase):
         ), mock.patch.object(main, "generate_report") as mock_generate_report:
             run_analysis(day_dir, self.dcm_file, output_dir, report_name="combined_day")
 
+        mock_generate_report.assert_called_once()
+        self.assertEqual("combined_day", mock_generate_report.call_args.kwargs["report_name"])
         report_data = mock_generate_report.call_args.args[0]
         self.assertEqual(["Beam B", "Beam A", "Beam C"], [key for key in report_data if not key.startswith("_")])
         self.assertEqual(35, len(report_data["Beam A"]["layers"]))
@@ -611,10 +609,10 @@ class TestMain(unittest.TestCase):
         ):
             return results_queue.pop(0)
 
-        with mock.patch.object(main, "parse_dcm_file", return_value=plan_data), mock.patch.object(
+        with mock.patch.object(main, "load_plan_and_machine_config", return_value=(plan_data, {})), mock.patch.object(
             main, "find_ptn_files", return_value=fake_ptn_files
         ), mock.patch.object(
-            main, "parse_ptn_file", return_value={"time_ms": np.array([0.0]), "x": np.array([0.0]), "y": np.array([0.0])}
+            main, "parse_ptn_with_optional_mu_correction", return_value={"time_ms": np.array([0.0]), "x": np.array([0.0]), "y": np.array([0.0])}
         ), mock.patch.object(
             main, "parse_planrange_for_directory", return_value={}
         ), mock.patch.object(

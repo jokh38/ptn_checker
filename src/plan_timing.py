@@ -15,6 +15,7 @@ def _doserate_file_path() -> Path:
 
 @lru_cache(maxsize=1)
 def load_doserate_table() -> np.ndarray:
+    """Load the machine doserate lookup table from the repository CSV."""
     table = np.loadtxt(
         _doserate_file_path(),
         delimiter=",",
@@ -25,6 +26,7 @@ def load_doserate_table() -> np.ndarray:
 
 
 def get_doserate_for_energy(energy: float) -> float:
+    """Return the configured doserate for an energy bin, or ``0.0`` if missing."""
     table = load_doserate_table()
     if table.size == 0:
         return 0.0
@@ -38,6 +40,7 @@ def get_doserate_for_energy(energy: float) -> float:
 def build_layer_time_trajectory(
     positions_cm: np.ndarray, mu: np.ndarray, energy: float
 ) -> dict:
+    """Build a time trajectory for a planned layer using MU and transit limits."""
     positions_cm = np.asarray(positions_cm, dtype=float)
     mu = np.asarray(mu, dtype=float)
 

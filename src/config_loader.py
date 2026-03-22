@@ -127,6 +127,7 @@ def _parse_zero_dose_filter_config(yaml_data: dict) -> dict:
 
 
 def parse_app_config(file_path: str) -> dict:
+    """Parse and validate the legacy flat application config file."""
     config = _parse_key_value_config(
         file_path=file_path,
         allowed_keys=set(),
@@ -137,6 +138,7 @@ def parse_app_config(file_path: str) -> dict:
 
 
 def parse_yaml_config(file_path: str) -> dict:
+    """Parse and validate the primary YAML application config file."""
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"File not found: {file_path}")
 

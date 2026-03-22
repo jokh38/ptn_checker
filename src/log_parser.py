@@ -1,6 +1,121 @@
 import numpy as np
 import os
 
+PTN_COLUMN_COUNT = 8
+BEAM_ON_THRESHOLD = 2**15 + 2**14
+ALIGNMENT_TOLERANCE_MM = 1.0
+ALIGNMENT_CONFIRM_MM = 5.0
+N_PRE_BEAM_SAMPLES = 3
+REQUIRED_CONFIG_KEYS = (
+    "TIMEGAIN",
+    "XPOSOFFSET",
+    "YPOSOFFSET",
+    "XPOSGAIN",
+    "YPOSGAIN",
+)
+BASE_ARRAY_KEYS = (
+    "time_ms",
+    "x_raw",
+    "y_raw",
+    "x_size_raw",
+    "y_size_raw",
+    "dose1_au",
+    "dose2_au",
+    "layer_num",
+    "beam_on_off",
+    "x_mm",
+    "y_mm",
+    "x_size_mm",
+    "y_size_mm",
+)
+
+
+def _require_config_params(config_params: dict) -> None:
+    for key in REQUIRED_CONFIG_KEYS:
+        if key not in config_params:
+            raise KeyError(f"Error: Missing essential key '{key}' in config_params.")
+
+
+def _select_arrays(arrays: dict, selector) -> dict:
+    return {key: values[selector] for key, values in arrays.items()}
+
+
+def _build_output_arrays(time_ms, data_2d_float, config_params):
+    raw_x_col = data_2d_float[:, 0]
+    raw_y_col = data_2d_float[:, 1]
+    raw_x_size_col = data_2d_float[:, 2]
+    raw_y_size_col = data_2d_float[:, 3]
+    dose1_col = data_2d_float[:, 4]
+    dose2_col = data_2d_float[:, 5]
+    layer_num_col = data_2d_float[:, 6]
+    beam_on_off_col = data_2d_float[:, 7]
+
+    xpos_offset = float(config_params["XPOSOFFSET"])
+    ypos_offset = float(config_params["YPOSOFFSET"])
+    xpos_gain = float(config_params["XPOSGAIN"])
+    ypos_gain = float(config_params["YPOSGAIN"])
+
+    return {
+        "time_ms": time_ms,
+        "x_raw": raw_x_col,
+        "y_raw": raw_y_col,
+        "x_size_raw": raw_x_size_col,
+        "y_size_raw": raw_y_size_col,
+        "dose1_au": dose1_col,
+        "dose2_au": dose2_col,
+        "layer_num": layer_num_col,
+        "beam_on_off": beam_on_off_col,
+        "x_mm": (raw_x_col - xpos_offset) * xpos_gain,
+        "y_mm": (raw_y_col - ypos_offset) * ypos_gain,
+        "x_size_mm": raw_x_size_col * xpos_gain,
+        "y_size_mm": raw_y_size_col * ypos_gain,
+    }
+
+
+def _with_cumulative_mu_and_aliases(arrays: dict) -> dict:
+    arrays = arrays.copy()
+    arrays["mu"] = np.cumsum(arrays["dose1_au"])
+    arrays["x"] = arrays["x_mm"]
+    arrays["y"] = arrays["y_mm"]
+    return arrays
+
+
+def _remove_alignment_outliers(
+    arrays: dict,
+    *,
+    beam_on_mask,
+    raw_y_col,
+    ypos_offset,
+    ypos_gain,
+    alignment_y,
+):
+    beam_on_indices = np.where(beam_on_mask)[0]
+    if len(beam_on_indices) == 0:
+        return arrays
+
+    first_beam_on_idx = beam_on_indices[0]
+    pre_start = max(0, first_beam_on_idx - N_PRE_BEAM_SAMPLES)
+    pre_end = first_beam_on_idx
+    if pre_end <= pre_start:
+        return arrays
+
+    pre_beam_y_mm = (raw_y_col[pre_start:pre_end] - ypos_offset) * ypos_gain
+    pre_beam_mean_y = np.mean(pre_beam_y_mm)
+    if abs(pre_beam_mean_y - alignment_y) >= ALIGNMENT_CONFIRM_MM:
+        return arrays
+
+    n_outliers = 0
+    for y_value in arrays["y_mm"]:
+        if abs(y_value - pre_beam_mean_y) < ALIGNMENT_TOLERANCE_MM:
+            n_outliers += 1
+        else:
+            break
+
+    if n_outliers == 0:
+        return arrays
+    return _select_arrays(arrays, slice(n_outliers, None))
+
+
 def parse_ptn_file(file_path: str, config_params: dict) -> dict:
     """
     Parses a .ptn binary log file into a dictionary of numpy arrays.
@@ -46,10 +161,7 @@ def parse_ptn_file(file_path: str, config_params: dict) -> dict:
         raise FileNotFoundError(f"Error: File not found at {file_path}")
 
     # 2. Check for essential config_params
-    required_keys = ['TIMEGAIN', 'XPOSOFFSET', 'YPOSOFFSET', 'XPOSGAIN', 'YPOSGAIN']
-    for key in required_keys:
-        if key not in config_params:
-            raise KeyError(f"Error: Missing essential key '{key}' in config_params.")
+    _require_config_params(config_params)
 
     # Check if beam filtering is enabled
     filtered_beam_enabled = config_params.get('FILTERED_BEAM_ON_OFF', 'on').lower() == 'on'
@@ -61,14 +173,14 @@ def parse_ptn_file(file_path: str, config_params: dict) -> dict:
         raise IOError(f"Error reading binary data from {file_path}: {e}")
 
     # 4. Check if data can be reshaped (multiple of 8)
-    if raw_data_1d.size % 8 != 0:
+    if raw_data_1d.size % PTN_COLUMN_COUNT != 0:
         raise ValueError(
             f"Error: File data size ({raw_data_1d.size} shorts) "
             "is not a multiple of 8. Cannot reshape."
         )
 
     # Reshape to 2D array with 8 columns
-    data_2d = raw_data_1d.reshape(-1, 8)
+    data_2d = raw_data_1d.reshape(-1, PTN_COLUMN_COUNT)
 
     # 5. Convert data type to float32
     data_2d_float = data_2d.astype(np.float32)
@@ -83,122 +195,39 @@ def parse_ptn_file(file_path: str, config_params: dict) -> dict:
     # Columns: Time, RawX, RawY, RawXSize, RawYSize, Dose1, Dose2, LayerNum, BeamOnOff
     data_with_time = np.hstack((time_column, data_2d_float))
 
-    # Extract individual raw columns for clarity and calculations
-    # Indices based on data_2d_float (original 8 columns after reshape)
-    raw_x_col = data_2d_float[:, 0]
     raw_y_col = data_2d_float[:, 1]
-    raw_x_size_col = data_2d_float[:, 2]
-    raw_y_size_col = data_2d_float[:, 3]
-    dose1_col = data_2d_float[:, 4]
-    dose2_col = data_2d_float[:, 5]
-    layer_num_col = data_2d_float[:, 6] # Should these be int? Kept as float32 for now.
-    beam_on_off_col = data_2d_float[:, 7] # Should these be int?
-
-    # 8. Apply Calibrations
-    xpos_offset = float(config_params['XPOSOFFSET'])
+    beam_on_off_col = data_2d_float[:, 7]
     ypos_offset = float(config_params['YPOSOFFSET'])
-    xpos_gain = float(config_params['XPOSGAIN'])
     ypos_gain = float(config_params['YPOSGAIN'])
-
-    corrected_x_col = (raw_x_col - xpos_offset) * xpos_gain
-    corrected_y_col = (raw_y_col - ypos_offset) * ypos_gain
-    # As per C++ logFileLoadingThread, XPOSGAIN for XSize, YPOSGAIN for YSize
-    corrected_x_size_col = raw_x_size_col * xpos_gain
-    corrected_y_size_col = raw_y_size_col * ypos_gain
-
-    # 9. Calculate cumulative MU from dose1_au only
-    cumulative_mu = np.cumsum(dose1_col)
+    arrays = _build_output_arrays(
+        time_column.flatten(),
+        data_2d_float,
+        config_params,
+    )
 
     # 10. Conditionally filter data based on FILTERED_BEAM_ON_OFF setting
     if filtered_beam_enabled:
         # Filter data to include only "Beam On" states (beam_on_off == 1)
-        beam_on_mask = beam_on_off_col > 2**15 + 2**14  # Beam On if bit 15 and bit 14 are set
-
-        # Apply mask to all data arrays
-        filtered_time = time_column.flatten()[beam_on_mask]
-        filtered_x_raw = raw_x_col[beam_on_mask]
-        filtered_y_raw = raw_y_col[beam_on_mask]
-        filtered_x_size_raw = raw_x_size_col[beam_on_mask]
-        filtered_y_size_raw = raw_y_size_col[beam_on_mask]
-        filtered_dose1 = dose1_col[beam_on_mask]
-        filtered_dose2 = dose2_col[beam_on_mask]
-        filtered_layer_num = layer_num_col[beam_on_mask]
-        filtered_beam_on_off = beam_on_off_col[beam_on_mask]
-        filtered_x_mm = corrected_x_col[beam_on_mask]
-        filtered_y_mm = corrected_y_col[beam_on_mask]
-        filtered_x_size_mm = corrected_x_size_col[beam_on_mask]
-        filtered_y_size_mm = corrected_y_size_col[beam_on_mask]
-
-        # Recalculate cumulative MU for filtered data (dose1 only)
-        filtered_cumulative_mu = np.cumsum(filtered_dose1)
+        beam_on_mask = beam_on_off_col > BEAM_ON_THRESHOLD
+        arrays = _select_arrays(arrays, beam_on_mask)
     else:
-        # Use all data without filtering
-        filtered_time = time_column.flatten()
-        filtered_x_raw = raw_x_col
-        filtered_y_raw = raw_y_col
-        filtered_x_size_raw = raw_x_size_col
-        filtered_y_size_raw = raw_y_size_col
-        filtered_dose1 = dose1_col
-        filtered_dose2 = dose2_col
-        filtered_layer_num = layer_num_col
-        filtered_beam_on_off = beam_on_off_col
-        filtered_x_mm = corrected_x_col
-        filtered_y_mm = corrected_y_col
-        filtered_x_size_mm = corrected_x_size_col
-        filtered_y_size_mm = corrected_y_size_col
-        filtered_cumulative_mu = cumulative_mu
+        beam_on_mask = None
 
     # 10b. Filter leading beam-on samples stuck at scanning magnet alignment position
     # The first 1-2 beam-on samples often show Y at the magnet's alignment/transit
     # position (gantry-dependent) before the magnet settles to the planned spot.
     # These carry ~zero dose and create spurious max_abs_diff_y of 250-310 mm.
-    ALIGNMENT_TOLERANCE_MM = 1.0   # max deviation from alignment to count as outlier
-    ALIGNMENT_CONFIRM_MM = 5.0     # max deviation from config value to confirm pattern
-    N_PRE_BEAM_SAMPLES = 3         # number of pre-beam-on samples to average
-
     alignment_y = config_params.get('ALIGNMENT_Y_POSITION')
     if alignment_y is not None and filtered_beam_enabled:
         alignment_y = float(alignment_y)
-
-        # Find indices where beam transitions from off to on in the unfiltered data
-        beam_on_indices = np.where(beam_on_mask)[0]
-
-        if len(beam_on_indices) > 0:
-            first_beam_on_idx = beam_on_indices[0]
-
-            # Extract pre-beam-on Y samples (in raw units, convert to mm)
-            pre_start = max(0, first_beam_on_idx - N_PRE_BEAM_SAMPLES)
-            pre_end = first_beam_on_idx
-            if pre_end > pre_start:
-                pre_beam_y_mm = (raw_y_col[pre_start:pre_end] - ypos_offset) * ypos_gain
-                pre_beam_mean_y = np.mean(pre_beam_y_mm)
-
-                # Confirm this is actually the alignment pattern
-                if abs(pre_beam_mean_y - alignment_y) < ALIGNMENT_CONFIRM_MM:
-                    # Count leading beam-on samples that are still at alignment position
-                    n_outliers = 0
-                    for i in range(len(filtered_y_mm)):
-                        if abs(filtered_y_mm[i] - pre_beam_mean_y) < ALIGNMENT_TOLERANCE_MM:
-                            n_outliers += 1
-                        else:
-                            break  # magnet has settled
-
-                    if n_outliers > 0:
-                        # Slice all filtered arrays to remove alignment outliers
-                        filtered_time = filtered_time[n_outliers:]
-                        filtered_x_raw = filtered_x_raw[n_outliers:]
-                        filtered_y_raw = filtered_y_raw[n_outliers:]
-                        filtered_x_size_raw = filtered_x_size_raw[n_outliers:]
-                        filtered_y_size_raw = filtered_y_size_raw[n_outliers:]
-                        filtered_dose1 = filtered_dose1[n_outliers:]
-                        filtered_dose2 = filtered_dose2[n_outliers:]
-                        filtered_layer_num = filtered_layer_num[n_outliers:]
-                        filtered_beam_on_off = filtered_beam_on_off[n_outliers:]
-                        filtered_x_mm = filtered_x_mm[n_outliers:]
-                        filtered_y_mm = filtered_y_mm[n_outliers:]
-                        filtered_x_size_mm = filtered_x_size_mm[n_outliers:]
-                        filtered_y_size_mm = filtered_y_size_mm[n_outliers:]
-                        filtered_cumulative_mu = np.cumsum(filtered_dose1)
+        arrays = _remove_alignment_outliers(
+            arrays,
+            beam_on_mask=beam_on_mask,
+            raw_y_col=raw_y_col,
+            ypos_offset=ypos_offset,
+            ypos_gain=ypos_gain,
+            alignment_y=alignment_y,
+        )
 
     # 11. Filter out hardware default register values (position out of range)
     # Hardware defaults have x_raw > 65000; use min of config value and 60000
@@ -207,42 +236,10 @@ def parse_ptn_file(file_path: str, config_params: dict) -> dict:
     y_threshold = min(float(config_params.get('YTHRESHOLD', 60000)), 60000)
     ypos_offset_val = float(config_params['YPOSOFFSET'])
 
-    pos_valid_mask = (filtered_x_raw <= x_threshold) & (filtered_y_raw >= (ypos_offset_val - y_threshold))
+    pos_valid_mask = (
+        (arrays["x_raw"] <= x_threshold)
+        & (arrays["y_raw"] >= (ypos_offset_val - y_threshold))
+    )
 
-    filtered_time = filtered_time[pos_valid_mask]
-    filtered_x_raw = filtered_x_raw[pos_valid_mask]
-    filtered_y_raw = filtered_y_raw[pos_valid_mask]
-    filtered_x_size_raw = filtered_x_size_raw[pos_valid_mask]
-    filtered_y_size_raw = filtered_y_size_raw[pos_valid_mask]
-    filtered_dose1 = filtered_dose1[pos_valid_mask]
-    filtered_dose2 = filtered_dose2[pos_valid_mask]
-    filtered_layer_num = filtered_layer_num[pos_valid_mask]
-    filtered_beam_on_off = filtered_beam_on_off[pos_valid_mask]
-    filtered_x_mm = filtered_x_mm[pos_valid_mask]
-    filtered_y_mm = filtered_y_mm[pos_valid_mask]
-    filtered_x_size_mm = filtered_x_size_mm[pos_valid_mask]
-    filtered_y_size_mm = filtered_y_size_mm[pos_valid_mask]
-
-    # Recalculate cumulative MU after position filtering (dose1 only)
-    filtered_cumulative_mu = np.cumsum(filtered_dose1)
-
-    # 12. Return Data as dictionary of 1D arrays (conditionally filtered)
-    return {
-        "time_ms": filtered_time,
-        "x_raw": filtered_x_raw,
-        "y_raw": filtered_y_raw,
-        "x_size_raw": filtered_x_size_raw,
-        "y_size_raw": filtered_y_size_raw,
-        "dose1_au": filtered_dose1,
-        "dose2_au": filtered_dose2,
-        "layer_num": filtered_layer_num,
-        "beam_on_off": filtered_beam_on_off,
-        "x_mm": filtered_x_mm,
-        "y_mm": filtered_y_mm,
-        "x_size_mm": filtered_x_size_mm,
-        "y_size_mm": filtered_y_size_mm,
-        # Keys expected by calculator.py
-        "mu": filtered_cumulative_mu,
-        "x": filtered_x_mm,
-        "y": filtered_y_mm,
-    }
+    arrays = _select_arrays(arrays, pos_valid_mask)
+    return _with_cumulative_mu_and_aliases(arrays)

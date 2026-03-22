@@ -1,182 +1,144 @@
 # Code Review Findings: PTN Checker
 
 ## Overview
-This document reflects the current repository state after validating each finding against the codebase. Validation scope: `component validated`. It separates verified observations from recommendations and avoids treating style preferences as defects.
+This document reflects the repository state after the follow-up refactors completed on 2026-03-22. Validation scope: `component validated`.
+
+Observations:
+- The project now uses shared PTN discovery in `src/ptn_discovery.py`.
+- Shared report pass/metric logic now lives in `src/report_metrics.py`.
+- Shared DICOM/config/PTN loading logic now lives in `src/analysis_context.py`.
+- Report layout/dashboard code is split out of `src/report_generator.py` into `src/report_layout.py`.
+- The normalization implementation now lives in `src/layer_normalization_values.py`, with the root `layer_normalization_values.py` kept as a compatibility CLI/import wrapper.
+
+Assumptions:
+- The package-level exports in `src/__init__.py` are intended as a curated convenience surface, not a strict long-term public API contract.
+- Runtime configurability for the remaining hardcoded constants is not currently required for the repository’s tested workflows.
 
 ---
 
-## 1. VERIFIED DUPLICATION AND STRUCTURE FINDINGS
+## 1. RESOLVED FINDINGS
 
-### 1.1 Duplicated Helper: `find_ptn_files()`
-| File | Lines | Notes |
-|------|-------|-------|
-| `main.py:29-35` | 7 lines | Returns unsorted list |
-| `layer_normalization_values.py:14-20` | 7 lines | Returns sorted list |
+### 1.1 Duplicated PTN Discovery
+Resolved:
+- `main.py` and the normalization flow now both use `src/ptn_discovery.py`.
+- Ordering semantics remain explicit at the call sites (`main.py` keeps unsorted recursive discovery where needed, normalization uses sorted discovery).
 
-Observation: These functions duplicate the same filesystem walk logic, but they are not exact duplicates because the return ordering differs.
+### 1.2 Shared Report Helper Coupling
+Resolved:
+- `src/report_csv_exporter.py` no longer imports private helpers from `src/report_generator.py`.
+- Shared pass/fail and metric-selection logic now lives in `src/report_metrics.py`.
 
-Recommendation: Extract a shared helper only if both call sites can agree on ordering semantics.
+### 1.3 Missing Focused CSV Export Tests
+Resolved:
+- Dedicated exporter coverage now exists in `tests/test_report_csv_exporter.py`.
 
-### 1.2 Near-Duplicate Workflow: `run_analysis()`
-| File | Lines | Purpose |
-|------|-------|---------|
-| `main.py:137-325` | 189 lines | Main PDF/CSV analysis pipeline with delivery-group matching |
-| `layer_normalization_values.py:184-234` | 51 lines | MU normalization CSV pipeline |
+### 1.4 Combined Multi-Delivery Report Coverage
+Resolved:
+- Direct combined multi-delivery behavior is covered in `tests/test_main.py`, including the single combined report invocation path.
 
-Observation: Both flows share the same broad sequence of steps:
-Parse DICOM -> load machine/config data -> find PTN files -> parse PlanRange -> apply MU correction.
+### 1.5 Missing Public Docstrings
+Resolved:
+- Docstrings were added for the previously listed public functions in `src/config_loader.py`, `src/plan_timing.py`, and `src/report_csv_exporter.py`.
 
-Caveat: The current `main.py` pipeline has materially diverged from the CSV-only workflow because it now collects delivery groups and matches them to beams before iterating layers.
+### 1.6 Empty `src/__init__.py`
+Resolved:
+- `src/__init__.py` now exposes a curated import surface for commonly used project entrypoints.
 
-Recommendation: Consider extracting shared loading/matching steps if this logic continues to evolve in both places.
+### 1.7 Repetitive Array Handling In `log_parser.py`
+Resolved:
+- `src/log_parser.py` now applies shared array-selection helpers for mask-based and slice-based filtering instead of repeating per-array update blocks.
 
-### 1.3 Repetitive Array Handling in `log_parser.py`
-Observation: [src/log_parser.py](/home/jokh38/MOQUI_SMC/ptn_checker/src/log_parser.py#L117) and [src/log_parser.py](/home/jokh38/MOQUI_SMC/ptn_checker/src/log_parser.py#L187) contain repetitive per-array update blocks. They are not identical:
-- The first block applies a boolean mask.
-- The second block slices away leading outlier samples.
-
-Recommendation: A helper may still help readability, but it should support both mask-based and slice-based filtering instead of assuming a single `_apply_mask_to_all_arrays(mask)` shape.
-
----
-
-## 2. VERIFIED CODE QUALITY OBSERVATIONS
-
-### 2.1 Large Functions
-| Function | File | Lines | Severity |
-|----------|------|-------|----------|
-| `_generate_summary_page()` | `src/report_generator.py:611` | **457** | CRITICAL |
-| `calculate_differences_for_layer()` | `src/calculator.py:120` | **314** | CRITICAL |
-| `parse_ptn_file()` | `src/log_parser.py:4` | **245** | CRITICAL |
-| `_generate_executive_summary()` | `src/report_generator.py:1029` | **151** | HIGH |
-| `_draw_layer_heatmap()` | `src/report_generator.py:460` | **149** | HIGH |
-| `_draw_filter_panel()` | `src/report_generator.py:209` | **126** | HIGH |
-| `parse_dcm_file()` | `src/dicom_parser.py:153` | **114** | MEDIUM |
-| `generate_report()` | `src/report_generator.py:1223` | **101** | MEDIUM |
-
-Observation: These counts were validated from the current AST spans in the repository.
-
-### 2.2 Functions With High Parameter Counts
-| Function | Parameters | File |
-|----------|------------|------|
-| `_draw_layer_heatmap()` | **11** | `src/report_generator.py:475` |
-| `_draw_layer_table()` | 9 | `src/report_generator.py:391` |
-| `_detect_settling()` | 8 | `src/calculator.py:23` |
-| `_build_layer_row()` | 6 | `src/report_csv_exporter.py:65` |
-
-Observation: These counts are accurate. Whether they are too many is a design judgment, but they are legitimate refactoring candidates.
-
-### 2.3 Large Module: `report_generator.py`
-- `src/report_generator.py` is **1323 lines**
-- It currently owns plotting, layout, PDF composition, metric display, and pass/fail presentation logic
-
-Observation: This is a valid maintainability concern, though "god module" is a characterization rather than an objective defect.
-
-### 2.4 Deep Nesting
-- Nested control flow is present in several files
-- Confirmed examples include:
-  - `src/calculator.py:246-263`
-  - `src/dicom_parser.py:113-144`
-
-Observation: The previously reported aggregate number of deeply nested lines was not independently reproduced, so this section keeps only the verified examples.
+### 1.8 Large Report Module
+Resolved in structure:
+- `src/report_generator.py` is now a thinner report orchestration module.
+- Dashboard/layout helpers were extracted into `src/report_layout.py`.
 
 ---
 
-## 3. MODULE ORGANIZATION FINDINGS
+## 2. REFACTORED LARGE FUNCTIONS
 
-### 3.1 Root-Level `layer_normalization_values.py`
-- `layer_normalization_values.py` is 270 lines and lives at the repository root
-- Its test imports it directly with `import layer_normalization_values`
+Observation:
+- The largest parsing and analysis functions were decomposed into smaller internal helpers:
+  - `src/log_parser.py`
+  - `src/dicom_parser.py`
+  - `src/calculator.py`
+  - `src/report_layout.py`
+  - `src/report_generator.py`
 
-Observation: The file location is unusual relative to the rest of `src/`, but the current test setup does not expect `src.`-style imports for this module.
+Observation:
+- The prior report’s exact AST line counts are stale after these refactors and should not be reused.
 
-Recommendation: Move it into `src/` only if you also want to standardize packaging/import conventions.
-
-### 3.2 Empty `src/__init__.py`
-- `src/__init__.py` is empty
-
-Observation: This is factually true, but not automatically a defect. It only matters if the project wants a curated package-level public API.
-
-### 3.3 Missing Dedicated Test Module
-- There is no `tests/test_report_csv_exporter.py`
-
-Observation: Coverage may still exist indirectly through higher-level tests, but there is no dedicated test file for this module.
-
-Additional observation: combined multi-delivery report behavior still lacks direct test coverage. The current main-path naming test only checks basename-derived report naming, not multi-group report generation behavior.
-
-### 3.4 Private Function Imports
-- `src/report_csv_exporter.py` imports private functions from `src/report_generator.py`:
-  - `_layer_passes`
-  - `_metric_value`
-  - `_spot_pass_summary`
-
-Observation: This coupling is real and increases the chance that report-generator internals will become de facto shared API.
+Recommendation:
+- If future review requires new size/complexity findings, remeasure the current code instead of relying on the earlier counts.
 
 ---
 
-## 4. HARDCODED VALUES AND TUNABLE CONSTANTS
+## 3. MODULE ORGANIZATION STATUS
 
-### Verified Constants
-| Value | Location | Current |
-|-------|----------|---------|
-| `dose_dividing_factor` default | `src/mu_correction.py:112` | `10.0` |
-| `MAX_SPEED` | `src/plan_timing.py:7` | `2000.0` |
-| `MIN_DOSERATE` | `src/plan_timing.py:8` | `1.4` |
-| `ALIGNMENT_TOLERANCE_MM` | `src/log_parser.py:155` | `1.0` |
-| Figure size constants | `src/report_generator.py:11-12` | Module-level |
-| Threshold constants | `src/report_generator.py:15-19` | Module-level |
+### 3.1 `layer_normalization_values.py`
+Decision:
+- Keep the root module as a compatibility CLI/import wrapper.
+- Keep the implementation under `src/layer_normalization_values.py`.
 
-Observation: These values are present and hardcoded. Whether they should be configurable depends on expected deployment variability and how often they change.
+Reasoning:
+- This preserves the existing CLI/test import style while standardizing the implementation under `src/`.
 
----
-
-## 5. MISSING DOCSTRINGS
-
-| Function | File |
-|----------|------|
-| `parse_app_config()` | `src/config_loader.py:129` |
-| `parse_yaml_config()` | `src/config_loader.py:139` |
-| `load_doserate_table()` | `src/plan_timing.py:17` |
-| `get_doserate_for_energy()` | `src/plan_timing.py:27` |
-| `build_layer_time_trajectory()` | `src/plan_timing.py:38` |
-| `export_report_csv()` | `src/report_csv_exporter.py:110` |
-
-Observation: These public functions currently have no docstrings. This list is exhaustive for the current public functions in `src/` that are missing docstrings.
+### 3.2 Report Organization
+Observation:
+- Report layout logic is now separated from PDF orchestration:
+  - `src/report_generator.py`: report writing/orchestration
+  - `src/report_layout.py`: dashboard and summary-page layout helpers
+  - `src/report_metrics.py`: shared metric/pass logic
+  - `src/report_constants.py`: report constants
 
 ---
 
-## 6. POSITIVE FINDINGS AND ASSESSMENTS
+## 4. CONSTANTS AND CONFIGURABILITY
 
-Verified observations:
-- No circular dependencies were found in the current `src` import graph.
-- No `TODO` markers were found in the searched source/test files.
+Observation:
+- The repository still contains module-level constants such as scan-speed limits, alignment tolerances, and report thresholds.
 
-Assessments:
-- Naming is broadly consistent with Python conventions.
-- The repository has a substantial automated test suite.
-- Most `src` modules have limited direct dependencies on other project modules.
+Decision:
+- No additional runtime configurability was added in this follow-up.
 
-Note: The earlier claim that there were no `print()` statements was incorrect. `layer_normalization_values.py` contains CLI `print()` calls when reporting output file paths.
+Reasoning:
+- The current tests and workflows do not demonstrate a real deployment need for exposing more tunables.
+- Promoting constants without a concrete usage requirement would increase config surface area without clear benefit.
 
 ---
 
-## 7. PRIORITIZED ACTION PLAN
+## 5. TESTING STATUS
 
-### IMMEDIATE
-1. Correct factual inaccuracies in this review document before using it for planning.
-2. Add a focused test module for `src/report_csv_exporter.py`.
-3. Add direct coverage for combined multi-delivery report behavior instead of relying on the current basename-only naming test.
-4. Decide whether `layer_normalization_values.py` should remain a top-level CLI script or become part of the `src` package.
+Observation:
+- The repository has direct tests for:
+  - report CSV export
+  - combined multi-delivery report assembly
+  - normalization CSV generation
+  - parsing, calculation, and report rendering components
 
-### HIGH
-5. Remove or reduce private cross-module imports by extracting shared report helpers into a neutral module.
-6. Add docstrings to public functions listed above.
-7. Refactor the largest functions in `report_generator.py`, `calculator.py`, and `log_parser.py`.
+Validation scope:
+- `component validated`
 
-### MEDIUM
-8. Consolidate duplicated PTN-discovery and analysis-loading logic where behavior truly matches.
-9. Revisit hardcoded thresholds/constants and promote only the ones that need runtime configurability.
-10. Break `report_generator.py` into smaller modules if ongoing feature work continues there.
+Known gap:
+- No local sample-data run was executed as part of this document update, so this document does not claim `end-to-end validated`.
 
-### LOW
-11. Standardize package exports in `src/__init__.py` if a package-level API becomes useful.
-12. Reduce repetitive array-handling code in `log_parser.py` with a helper that supports both masking and slicing.
+---
+
+## 6. CURRENT ACTION STATUS
+
+Completed from the prior action list:
+1. Corrected stale findings in this review document.
+2. Added a focused test module for `src/report_csv_exporter.py`.
+3. Added direct combined multi-delivery report coverage.
+4. Standardized the normalization implementation under `src/` while preserving the root wrapper.
+5. Removed private cross-module report-helper imports.
+6. Added the missing public docstrings.
+7. Refactored the largest parser/calculator/report functions into helper-oriented implementations.
+8. Consolidated duplicated PTN discovery and shared analysis-loading logic.
+9. Revisited hardcoded constants and explicitly chose not to widen runtime configurability yet.
+10. Broke report generation into smaller modules.
+11. Standardized package exports in `src/__init__.py`.
+12. Reduced repetitive array-handling code in `src/log_parser.py`.
+
+Current status:
+- No open mandatory follow-up items remain from the previous review.

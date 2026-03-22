@@ -1,20 +1,20 @@
 import argparse
 import csv
 from datetime import date
-import glob
 import logging
 import sys
 import os
-import pydicom
 import numpy as np
-from src.log_parser import parse_ptn_file
-from src.dicom_parser import parse_dcm_file
+from src.analysis_context import (
+    load_plan_and_machine_config,
+    parse_ptn_with_optional_mu_correction,
+)
 from src.calculator import calculate_differences_for_layer
 from src.report_generator import generate_report
 from src.report_csv_exporter import export_report_csv
-from src.config_loader import parse_yaml_config, parse_scv_init
+from src.config_loader import parse_yaml_config
 from src.planrange_parser import parse_planrange_for_directory
-from src.mu_correction import apply_mu_correction
+from src.ptn_discovery import find_ptn_files as discover_ptn_files
 
 logger = logging.getLogger(__name__)
 
@@ -27,12 +27,7 @@ def derive_report_name(log_dir, today=None):
 
 
 def find_ptn_files(directory):
-    ptn_files = []
-    for root, _, files in os.walk(directory):
-        for file in files:
-            if file.endswith(".ptn"):
-                ptn_files.append(os.path.join(root, file))
-    return ptn_files
+    return discover_ptn_files(directory)
 
 
 def collect_ptn_delivery_groups(log_dir):
@@ -138,10 +133,6 @@ def run_analysis(log_dir, dcm_file, output_dir, report_name=None):
     """
     Runs the analysis on the given DICOM and PTN files and generates plot images.
     """
-    if not os.path.isfile(dcm_file):
-        raise FileNotFoundError(f"DICOM file not found: {dcm_file}")
-
-    logger.info(f"Parsing DICOM file: {dcm_file}")
     app_config_path = os.path.join(os.path.dirname(__file__) or ".", "config.yaml")
     if not os.path.exists(app_config_path):
         raise FileNotFoundError(f"App config file not found: {app_config_path}")
@@ -152,29 +143,21 @@ def run_analysis(log_dir, dcm_file, output_dir, report_name=None):
         raise ValueError(f"Failed to parse config file: {e}")
 
     try:
-        plan_data_raw = parse_dcm_file(dcm_file, zero_dose_config=app_config)
+        logger.info("Parsing DICOM file: %s", dcm_file)
+        plan_data_raw, config = load_plan_and_machine_config(
+            dcm_file,
+            zero_dose_config=app_config,
+        )
+    except FileNotFoundError:
+        raise
     except Exception as e:
-        raise ValueError(f"Failed to parse DICOM file: {e}")
+        raise ValueError(f"Failed to load analysis inputs: {e}")
 
     if not plan_data_raw or "beams" not in plan_data_raw or not plan_data_raw["beams"]:
         raise ValueError("Failed to parse DICOM file or it contains no beam data.")
 
     machine_name = plan_data_raw.get("machine_name", "UNKNOWN")
     logger.info(f"Detected treatment machine: {machine_name}")
-
-    config_file = f"scv_init_{machine_name.upper()}.txt"
-    config_path = os.path.join(os.path.dirname(__file__) or ".", config_file)
-    if not os.path.exists(config_path):
-        available = glob.glob(
-            os.path.join(os.path.dirname(__file__) or ".", "scv_init_*.txt")
-        )
-        logger.error(f"Config file not found: {config_path}. Available: {available}")
-        raise FileNotFoundError(f"Config file not found: {config_path}")
-
-    try:
-        config = parse_scv_init(config_path)
-    except Exception as e:
-        raise ValueError(f"Failed to parse config file: {e}")
     analysis_config = {**config, **app_config}
 
     delivery_groups = collect_ptn_delivery_groups(log_dir)
@@ -239,7 +222,11 @@ def run_analysis(log_dir, dcm_file, output_dir, report_name=None):
                 ptn_file = next(ptn_file_iter)
 
                 try:
-                    log_data_raw = parse_ptn_file(ptn_file, config)
+                    log_data_raw = parse_ptn_with_optional_mu_correction(
+                        ptn_file,
+                        config,
+                        planrange_lookup,
+                    )
                     if not log_data_raw:
                         logger.warning(
                             f"Could not parse PTN file or it is empty: {ptn_file}"
@@ -248,17 +235,6 @@ def run_analysis(log_dir, dcm_file, output_dir, report_name=None):
                 except (KeyError, ValueError, IOError) as e:
                     logger.error(f"Error parsing PTN file {ptn_file}: {e}")
                     continue
-
-                abs_ptn = os.path.abspath(ptn_file)
-                if abs_ptn in planrange_lookup:
-                    range_info = planrange_lookup[abs_ptn]
-                    apply_mu_correction(
-                        log_data_raw, range_info.energy, range_info.dose1_range_code
-                    )
-                elif planrange_lookup:
-                    logger.warning(
-                        f"No PlanRange entry for {ptn_file}, using uncorrected MU"
-                    )
 
                 try:
                     save_csv_for_this_layer = save_debug_csv
