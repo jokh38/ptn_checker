@@ -391,8 +391,35 @@ class TestReportGenerator(unittest.TestCase):
             if text.get_text() in ["Mean", "Std", "Max"]
         ]
         gap = header_ax.get_position().y0 - heatmap_ax.get_position().y1
-        self.assertEqual([0.54], sorted(set(metric_ys)))
+        self.assertEqual([0.50], sorted(set(metric_ys)))
         self.assertLess(gap, 0.0005)
+        plt.close(fig)
+
+    def test_generate_summary_page_lowers_header_content_and_colorbar(self):
+        beam_data = self.report_data["Beam 1"]
+
+        fig = _generate_summary_page("Beam 1", beam_data)
+        heatmap_ax = next(ax for ax in fig.axes if len(ax.images) == 1 and ax.get_ylabel() == "Layer")
+        header_ax = next(
+            ax for ax in fig.axes
+            if ax is not heatmap_ax and any(text.get_text() == "X" for text in ax.texts)
+        )
+        colorbar_ax = next(ax for ax in fig.axes if ax.get_xlabel() == "Error severity (mm)")
+
+        metric_ys = sorted({
+            text.get_position()[1]
+            for text in header_ax.texts
+            if text.get_text() in ["Mean", "Std", "Max"]
+        })
+        group_ys = sorted({
+            text.get_position()[1]
+            for text in header_ax.texts
+            if text.get_text() in ["X", "Y"]
+        })
+
+        self.assertEqual([0.50], metric_ys)
+        self.assertEqual([0.66], group_ys)
+        self.assertLess(colorbar_ax.get_position().y1, heatmap_ax.get_position().y0 - 0.002)
         plt.close(fig)
 
     def test_generate_summary_page_places_flag_legend_outside_colorbar(self):

@@ -493,16 +493,16 @@ def _draw_layer_heatmap(
         for idx, label in enumerate(metric_labels):
             header_ax.text(
                 idx,
-                0.54,
+                0.50,
                 label,
                 ha="center",
                 va="center",
                 fontsize=6,
             )
-        header_ax.plot([-0.5, 2.5], [0.66, 0.66], color="#34495e", linewidth=0.8)
-        header_ax.plot([2.5, 5.5], [0.66, 0.66], color="#34495e", linewidth=0.8)
-        header_ax.text(1.0, 0.70, "X", ha="center", va="bottom", fontsize=6, fontweight="bold")
-        header_ax.text(4.0, 0.70, "Y", ha="center", va="bottom", fontsize=6, fontweight="bold")
+        header_ax.plot([-0.5, 2.5], [0.62, 0.62], color="#34495e", linewidth=0.8)
+        header_ax.plot([2.5, 5.5], [0.62, 0.62], color="#34495e", linewidth=0.8)
+        header_ax.text(1.0, 0.66, "X", ha="center", va="bottom", fontsize=6, fontweight="bold")
+        header_ax.text(4.0, 0.66, "Y", ha="center", va="bottom", fontsize=6, fontweight="bold")
 
     cmap = plt.cm.RdYlGn_r
     norm = Normalize(vmin=0, vmax=THRESHOLDS["max_abs_diff_mm"])
@@ -956,6 +956,13 @@ def _generate_summary_page(
             flag_pos.width,
             tightened_heatmap_top - flag_pos.y0,
         ])
+    cbar_pos = ax_heatmap_cbar.get_position()
+    ax_heatmap_cbar.set_position([
+        cbar_pos.x0,
+        cbar_pos.y0 - 0.003,
+        cbar_pos.width,
+        cbar_pos.height,
+    ])
     heatmap_values = np.array([
         np.abs(mean_x_all),
         std_x_all,
