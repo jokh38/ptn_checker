@@ -256,6 +256,8 @@ class TestReportGenerator(unittest.TestCase):
         flag_ax = flag_image.axes
         rendered_chars = [text.get_text() for text in flag_ax.texts]
         self.assertEqual(["FAIL", "FB", "NS", "OV"], rendered_chars[:4])
+        self.assertNotIn("Flag", [tick.get_text() for tick in flag_ax.get_xticklabels()])
+        self.assertIn("Flag", [text.get_text() for text in header_ax.texts])
         legend_text = "\n".join(rendered_chars[4:])
         self.assertIn("FAIL = layer fail", legend_text)
         self.assertIn("FB = fallback to raw", legend_text)
@@ -304,6 +306,7 @@ class TestReportGenerator(unittest.TestCase):
         group_labels = [text.get_text() for text in header_ax.texts]
         self.assertIn("X", group_labels)
         self.assertIn("Y", group_labels)
+        self.assertIn("Flag", group_labels)
         plt.close(fig)
 
     def test_generate_summary_page_orders_heatmap_columns_by_axis_group(self):
@@ -391,7 +394,7 @@ class TestReportGenerator(unittest.TestCase):
             if text.get_text() in ["Mean", "Std", "Max"]
         ]
         gap = header_ax.get_position().y0 - heatmap_ax.get_position().y1
-        self.assertEqual([0.50], sorted(set(metric_ys)))
+        self.assertEqual([0.40], sorted(set(metric_ys)))
         self.assertLess(gap, 0.0005)
         plt.close(fig)
 
@@ -417,9 +420,9 @@ class TestReportGenerator(unittest.TestCase):
             if text.get_text() in ["X", "Y"]
         })
 
-        self.assertEqual([0.50], metric_ys)
-        self.assertEqual([0.66], group_ys)
-        self.assertLess(colorbar_ax.get_position().y1, heatmap_ax.get_position().y0 - 0.002)
+        self.assertEqual([0.40], metric_ys)
+        self.assertEqual([0.61], group_ys)
+        self.assertLess(colorbar_ax.get_position().y1, heatmap_ax.get_position().y0 - 0.005)
         plt.close(fig)
 
     def test_generate_summary_page_places_flag_legend_outside_colorbar(self):
@@ -433,9 +436,14 @@ class TestReportGenerator(unittest.TestCase):
                 results["max_abs_diff_x"] = 4.5
 
         fig = _generate_summary_page("Beam 1", beam_data)
+        heatmap_ax = next(ax for ax in fig.axes if len(ax.images) == 1 and ax.get_ylabel() == "Layer")
+        header_ax = next(
+            ax for ax in fig.axes
+            if ax is not heatmap_ax and any(text.get_text() == "X" for text in ax.texts)
+        )
         flag_ax = next(
             ax for ax in fig.axes
-            if [tick.get_text() for tick in ax.get_xticklabels()] == ["Flag"]
+            if len(ax.images) == 1 and ax is not heatmap_ax and ax.get_ylabel() == ""
         )
         legend_ax = next(
             ax for ax in fig.axes
@@ -446,6 +454,8 @@ class TestReportGenerator(unittest.TestCase):
         )
 
         legend_text = "\n".join(text.get_text() for text in legend_ax.texts if "=" in text.get_text())
+        self.assertIn("Flag", [text.get_text() for text in header_ax.texts])
+        self.assertNotIn("Flag", [tick.get_text() for tick in flag_ax.get_xticklabels()])
         self.assertIn("FAIL = layer fail", legend_text)
         self.assertIn("FB = fallback to raw", legend_text)
         self.assertIn("NS = never settled", legend_text)

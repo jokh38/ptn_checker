@@ -493,16 +493,27 @@ def _draw_layer_heatmap(
         for idx, label in enumerate(metric_labels):
             header_ax.text(
                 idx,
-                0.50,
+                0.40,
                 label,
                 ha="center",
                 va="center",
                 fontsize=6,
             )
-        header_ax.plot([-0.5, 2.5], [0.62, 0.62], color="#34495e", linewidth=0.8)
-        header_ax.plot([2.5, 5.5], [0.62, 0.62], color="#34495e", linewidth=0.8)
-        header_ax.text(1.0, 0.66, "X", ha="center", va="bottom", fontsize=6, fontweight="bold")
-        header_ax.text(4.0, 0.66, "Y", ha="center", va="bottom", fontsize=6, fontweight="bold")
+        header_ax.plot([-0.5, 2.5], [0.57, 0.57], color="#34495e", linewidth=0.8)
+        header_ax.plot([2.5, 5.5], [0.57, 0.57], color="#34495e", linewidth=0.8)
+        header_ax.text(1.0, 0.61, "X", ha="center", va="bottom", fontsize=6, fontweight="bold")
+        header_ax.text(4.0, 0.61, "Y", ha="center", va="bottom", fontsize=6, fontweight="bold")
+    if flag_rows:
+        header_ax.text(
+            1.055,
+            0.50,
+            "Flag",
+            ha="center",
+            va="center",
+            fontsize=6,
+            transform=header_ax.transAxes,
+            clip_on=False,
+        )
 
     cmap = plt.cm.RdYlGn_r
     norm = Normalize(vmin=0, vmax=THRESHOLDS["max_abs_diff_mm"])
@@ -557,7 +568,7 @@ def _draw_layer_heatmap(
             origin="upper",
         )
         flag_ax.set_xticks([0])
-        flag_ax.set_xticklabels(["Flag"], fontsize=6)
+        flag_ax.set_xticklabels([""], fontsize=6)
         if num_layers > 25:
             tick_step = max(1, int(np.ceil(num_layers / 25)))
             tick_positions = np.arange(0, num_layers, tick_step)
@@ -959,9 +970,16 @@ def _generate_summary_page(
     cbar_pos = ax_heatmap_cbar.get_position()
     ax_heatmap_cbar.set_position([
         cbar_pos.x0,
-        cbar_pos.y0 - 0.003,
+        cbar_pos.y0 - 0.006,
         cbar_pos.width,
         cbar_pos.height,
+    ])
+    flag_legend_pos = ax_heatmap_flag_legend.get_position()
+    ax_heatmap_flag_legend.set_position([
+        flag_legend_pos.x0,
+        flag_legend_pos.y0 - 0.006,
+        flag_legend_pos.width,
+        flag_legend_pos.height,
     ])
     heatmap_values = np.array([
         np.abs(mean_x_all),
