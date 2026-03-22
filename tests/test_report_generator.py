@@ -11,6 +11,7 @@ from src.report_generator import (
     _generate_error_bar_plot_for_beam,
     _generate_summary_page,
     _draw_layer_heatmap,
+    _draw_analysis_info_panel,
     _generate_per_layer_position_plot,
     _save_plots_to_pdf_grid,
     _layer_passes,
@@ -176,7 +177,10 @@ class TestReportGenerator(unittest.TestCase):
         self.assertTrue(os.path.exists(expected_pdf_path))
 
     def test_draw_layer_heatmap_renders_all_layers(self):
-        fig, ax = plt.subplots(figsize=(6, 4))
+        fig = plt.figure(figsize=(6, 4))
+        title_ax = fig.add_subplot(3, 1, 1)
+        header_ax = fig.add_subplot(2, 1, 1)
+        ax = fig.add_subplot(2, 1, 2)
         heatmap_values = np.array([
             [0.1, 0.2, 0.3, 0.4],
             [0.5, 0.6, 0.7, 0.8],
@@ -194,6 +198,8 @@ class TestReportGenerator(unittest.TestCase):
 
         image, flag_image = _draw_layer_heatmap(
             fig,
+            title_ax,
+            header_ax,
             ax,
             heatmap_values,
             layer_labels,
@@ -203,21 +209,25 @@ class TestReportGenerator(unittest.TestCase):
 
         self.assertEqual((4, 6), image.get_array().shape)
         self.assertEqual((4, 1), flag_image.get_array().shape)
-        self.assertEqual("Layer Heatmap", ax.get_title())
+        self.assertTrue(any(text.get_text() == "Layer Heatmap" for text in title_ax.texts))
         self.assertEqual("Metric", ax.get_xlabel())
         self.assertEqual("Layer", ax.get_ylabel())
         self.assertEqual(
             ["Mean", "Std", "Max", "Mean", "Std", "Max"],
-            [tick.get_text() for tick in ax.get_xticklabels()],
+            [text.get_text() for text in header_ax.texts if text.get_text() in metric_labels],
         )
-        self.assertTrue(all(tick.get_rotation() == 0 for tick in ax.get_xticklabels()))
-        group_labels = [text.get_text() for text in ax.texts]
+        group_labels = [text.get_text() for text in header_ax.texts]
         self.assertIn("X", group_labels)
         self.assertIn("Y", group_labels)
+        self.assertEqual(1, group_labels.count("X"))
+        self.assertEqual(1, group_labels.count("Y"))
         plt.close(fig)
 
     def test_draw_layer_heatmap_uses_prioritized_abbreviated_flag_column(self):
-        fig, ax = plt.subplots(figsize=(6, 4))
+        fig = plt.figure(figsize=(6, 4))
+        title_ax = fig.add_subplot(3, 1, 1)
+        header_ax = fig.add_subplot(2, 1, 1)
+        ax = fig.add_subplot(2, 1, 2)
         heatmap_values = np.array([
             [0.1, 0.2, 0.3, 0.4],
             [0.5, 0.6, 0.7, 0.8],
@@ -233,6 +243,8 @@ class TestReportGenerator(unittest.TestCase):
 
         _, flag_image = _draw_layer_heatmap(
             fig,
+            title_ax,
+            header_ax,
             ax,
             heatmap_values,
             layer_labels,
@@ -243,7 +255,12 @@ class TestReportGenerator(unittest.TestCase):
         self.assertIsNotNone(flag_image)
         flag_ax = flag_image.axes
         rendered_chars = [text.get_text() for text in flag_ax.texts]
-        self.assertEqual(["FAIL", "FB", "NS", "OV"], rendered_chars)
+        self.assertEqual(["FAIL", "FB", "NS", "OV"], rendered_chars[:4])
+        legend_text = "\n".join(rendered_chars[4:])
+        self.assertIn("FAIL = layer fail", legend_text)
+        self.assertIn("FB = fallback to raw", legend_text)
+        self.assertIn("NS = never settled", legend_text)
+        self.assertIn("OV = low overlap", legend_text)
         plt.close(fig)
 
     def test_generate_summary_page_uses_trend_and_heatmap_panels(self):
@@ -251,19 +268,120 @@ class TestReportGenerator(unittest.TestCase):
 
         fig = _generate_summary_page("Beam 1", beam_data)
         axes_by_title = {ax.get_title(): ax for ax in fig.axes if ax.get_title()}
+        title_axes = [
+            ax for ax in fig.axes if any(text.get_text() == "Layer Heatmap" for text in ax.texts)
+        ]
 
-        self.assertIn("Layer Trend", axes_by_title)
-        self.assertIn("Layer Heatmap", axes_by_title)
-        self.assertGreaterEqual(len(axes_by_title["Layer Trend"].get_yticks()), 2)
-        self.assertEqual(1, len(axes_by_title["Layer Heatmap"].images))
+        trend_title_axes = [
+            ax for ax in fig.axes if any(text.get_text() == "Layer Trend" for text in ax.texts)
+        ]
+        self.assertEqual(1, len(trend_title_axes))
+        self.assertEqual(1, len(title_axes))
+        # The trend plot axes (with yticks) is the one with ylabel "Layer"
+        trend_plot_axes = [ax for ax in fig.axes if ax.get_ylabel() == "Layer" and len(ax.images) == 0]
+        self.assertEqual(1, len(trend_plot_axes))
+        self.assertGreaterEqual(len(trend_plot_axes[0].get_yticks()), 2)
+        self.assertEqual(
+            1,
+            len([ax for ax in fig.axes if len(ax.images) == 1 and ax.get_ylabel() == "Layer"]),
+        )
+        plt.close(fig)
+
+    def test_generate_summary_page_uses_human_readable_heatmap_headers(self):
+        beam_data = self.report_data["Beam 1"]
+
+        fig = _generate_summary_page("Beam 1", beam_data)
+        heatmap_ax = next(ax for ax in fig.axes if len(ax.images) == 1 and ax.get_ylabel() == "Layer")
+        header_ax = next(
+            ax for ax in fig.axes
+            if ax is not heatmap_ax and any(text.get_text() == "X" for text in ax.texts)
+        )
+
+        self.assertEqual(
+            ["Mean", "Std", "Max", "Mean", "Std", "Max"],
+            [text.get_text() for text in header_ax.texts if text.get_text() in ["Mean", "Std", "Max"]],
+        )
+        group_labels = [text.get_text() for text in header_ax.texts]
+        self.assertIn("X", group_labels)
+        self.assertIn("Y", group_labels)
+        plt.close(fig)
+
+    def test_generate_summary_page_uses_dedicated_heatmap_header_band(self):
+        beam_data = self.report_data["Beam 1"]
+
+        fig = _generate_summary_page("Beam 1", beam_data)
+        heatmap_ax = next(ax for ax in fig.axes if len(ax.images) == 1 and ax.get_ylabel() == "Layer")
+        header_ax = next(
+            ax for ax in fig.axes
+            if ax is not heatmap_ax and any(text.get_text() == "X" for text in ax.texts)
+        )
+
+        self.assertFalse(any(text.get_text() == "X" for text in heatmap_ax.texts))
+        self.assertFalse(any(text.get_text() == "Y" for text in heatmap_ax.texts))
+        self.assertTrue(any(text.get_text() == "X" for text in header_ax.texts))
+        self.assertTrue(any(text.get_text() == "Y" for text in header_ax.texts))
+        self.assertGreater(header_ax.get_position().y0, heatmap_ax.get_position().y1)
+        plt.close(fig)
+
+    def test_generate_summary_page_places_flag_legend_outside_colorbar(self):
+        beam_data = self.report_data["Beam 1"]
+        for idx, layer in enumerate(beam_data["layers"]):
+            results = layer["results"]
+            results["filtered_stats_fallback_to_raw"] = idx == 1
+            results["settling_status"] = "never_settled" if idx == 2 else "settled"
+            results["time_overlap_fraction"] = 0.8 if idx == 3 else 1.0
+            if idx == 4:
+                results["max_abs_diff_x"] = 4.5
+
+        fig = _generate_summary_page("Beam 1", beam_data)
+        flag_ax = next(
+            ax for ax in fig.axes
+            if [tick.get_text() for tick in ax.get_xticklabels()] == ["Flag"]
+        )
+        legend_ax = next(
+            ax for ax in fig.axes
+            if any("FAIL = layer fail" in text.get_text() for text in ax.texts)
+        )
+        colorbar_ax = next(
+            ax for ax in fig.axes if ax.get_xlabel() == "Error severity (mm)"
+        )
+
+        legend_text = "\n".join(text.get_text() for text in legend_ax.texts if "=" in text.get_text())
+        self.assertIn("FAIL = layer fail", legend_text)
+        self.assertIn("FB = fallback to raw", legend_text)
+        self.assertIn("NS = never settled", legend_text)
+        self.assertIn("OV = low overlap", legend_text)
+        self.assertLess(legend_ax.get_position().y1, colorbar_ax.get_position().y0)
+        plt.close(fig)
+
+    def test_generate_summary_page_uses_middle_right_panel_row_order(self):
+        beam_data = self.report_data["Beam 1"]
+        beam_data["layers"][0]["results"]["filtered_stats_fallback_to_raw"] = True
+
+        fig = _generate_summary_page("Beam 1", beam_data)
+        heatmap_ax = next(ax for ax in fig.axes if len(ax.images) == 1 and ax.get_ylabel() == "Layer")
+        title_ax = next(
+            ax for ax in fig.axes
+            if ax is not heatmap_ax and any(text.get_text() == "Layer Heatmap" for text in ax.texts)
+        )
+        colorbar_ax = next(ax for ax in fig.axes if ax.get_xlabel() == "Error severity (mm)")
+        legend_ax = next(
+            ax for ax in fig.axes
+            if any("FAIL = layer fail" in text.get_text() for text in ax.texts)
+        )
+
+        self.assertGreater(title_ax.get_position().y0, heatmap_ax.get_position().y1)
+        self.assertLess(colorbar_ax.get_position().y1, heatmap_ax.get_position().y0)
+        self.assertLess(legend_ax.get_position().y1, colorbar_ax.get_position().y0)
         plt.close(fig)
 
     def test_summary_page_uses_horizontal_xy_errorbar_trend(self):
         beam_data = self.report_data["Beam 1"]
 
         fig = _generate_summary_page("Beam 1", beam_data)
-        axes_by_title = {ax.get_title(): ax for ax in fig.axes if ax.get_title()}
-        trend_ax = axes_by_title["Layer Trend"]
+        trend_ax = next(
+            ax for ax in fig.axes if ax.get_ylabel() == "Layer" and len(ax.images) == 0
+        )
         _, legend_labels = trend_ax.get_legend_handles_labels()
 
         self.assertEqual("Deviation (mm)", trend_ax.get_xlabel())
@@ -317,6 +435,117 @@ class TestReportGenerator(unittest.TestCase):
 
         self.assertEqual(1, passed_spots)
         self.assertEqual(1, total_spots)
+
+    def test_analysis_info_panel_shows_criteria_and_settling(self):
+        fig = plt.figure(figsize=(4, 5))
+        ax = fig.add_subplot(1, 1, 1)
+        ax.axis("off")
+        layers_data = self.report_data["Beam 1"]["layers"]
+        config = {
+            "SETTLING_THRESHOLD_MM": 0.5,
+            "SETTLING_CONSECUTIVE_SAMPLES": 10,
+            "SETTLING_WINDOW_SAMPLES": 50,
+            "ZERO_DOSE_FILTER_ENABLED": False,
+        }
+
+        _draw_analysis_info_panel(ax, layers_data, "raw", analysis_config=config)
+
+        self.assertEqual("Analysis Info", ax.get_title())
+        table = ax.tables[0]
+        cell_texts = [
+            table[row_idx, col_idx].get_text().get_text()
+            for row_idx in range(1, len(table._cells) // 2 + 1)
+            for col_idx in range(2)
+            if (row_idx, col_idx) in table._cells
+        ]
+        cell_str = " ".join(cell_texts)
+        self.assertIn("1.0 mm", cell_str)
+        self.assertIn("1.5 mm", cell_str)
+        self.assertIn("3.0 mm", cell_str)
+        self.assertIn("0.50 mm", cell_str)
+        self.assertIn("10", cell_str)
+        self.assertIn("Disabled", cell_str)
+        plt.close(fig)
+
+    def test_analysis_info_panel_shows_zero_dose_when_enabled(self):
+        fig = plt.figure(figsize=(4, 5))
+        ax = fig.add_subplot(1, 1, 1)
+        ax.axis("off")
+        layers_data = self.report_data["Beam 1"]["layers"]
+        config = {
+            "SETTLING_THRESHOLD_MM": 0.5,
+            "SETTLING_CONSECUTIVE_SAMPLES": 3,
+            "SETTLING_WINDOW_SAMPLES": 10,
+            "ZERO_DOSE_FILTER_ENABLED": True,
+            "ZERO_DOSE_MAX_MU": 0.001,
+            "ZERO_DOSE_BOUNDARY_HOLDOFF_S": 0.0006,
+            "ZERO_DOSE_REPORT_MODE": "filtered",
+        }
+
+        _draw_analysis_info_panel(ax, layers_data, "filtered", analysis_config=config)
+
+        table = ax.tables[0]
+        cell_texts = [
+            table[row_idx, col_idx].get_text().get_text()
+            for row_idx in range(1, len(table._cells) // 2 + 1)
+            for col_idx in range(2)
+            if (row_idx, col_idx) in table._cells
+        ]
+        cell_str = " ".join(cell_texts)
+        self.assertIn("Enabled", cell_str)
+        self.assertIn("0.0010", cell_str)
+        self.assertIn("0.0006 s", cell_str)
+        self.assertIn("filtered", cell_str)
+        plt.close(fig)
+
+    def test_analysis_info_panel_works_without_config(self):
+        fig = plt.figure(figsize=(4, 5))
+        ax = fig.add_subplot(1, 1, 1)
+        ax.axis("off")
+        layers_data = self.report_data["Beam 1"]["layers"]
+
+        _draw_analysis_info_panel(ax, layers_data, "raw")
+
+        self.assertEqual("Analysis Info", ax.get_title())
+        table = ax.tables[0]
+        cell_texts = [
+            table[row_idx, col_idx].get_text().get_text()
+            for row_idx in range(1, len(table._cells) // 2 + 1)
+            for col_idx in range(2)
+            if (row_idx, col_idx) in table._cells
+        ]
+        cell_str = " ".join(cell_texts)
+        # Criteria section always present
+        self.assertIn("1.0 mm", cell_str)
+        # No settling section without config
+        self.assertNotIn("0.50 mm", cell_str)
+        plt.close(fig)
+
+    def test_summary_page_passes_analysis_config_to_panel(self):
+        beam_data = self.report_data["Beam 1"]
+        config = {
+            "SETTLING_THRESHOLD_MM": 0.75,
+            "SETTLING_CONSECUTIVE_SAMPLES": 5,
+            "SETTLING_WINDOW_SAMPLES": 20,
+            "ZERO_DOSE_FILTER_ENABLED": False,
+        }
+
+        fig = _generate_summary_page("Beam 1", beam_data, analysis_config=config)
+
+        # Find the analysis info panel by its title
+        info_axes = [ax for ax in fig.axes if ax.get_title() == "Analysis Info"]
+        self.assertEqual(1, len(info_axes))
+        table = info_axes[0].tables[0]
+        cell_texts = [
+            table[row_idx, col_idx].get_text().get_text()
+            for row_idx in range(1, len(table._cells) // 2 + 1)
+            for col_idx in range(2)
+            if (row_idx, col_idx) in table._cells
+        ]
+        cell_str = " ".join(cell_texts)
+        self.assertIn("0.75 mm", cell_str)
+        plt.close(fig)
+
 
 if __name__ == '__main__':
     unittest.main()

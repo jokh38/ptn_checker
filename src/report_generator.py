@@ -206,24 +206,18 @@ def _beam_verdict(pass_rate):
         return "FAIL", "#e74c3c"
 
 
-def _draw_filter_panel(ax, layers_data, report_mode):
-    """Draw a filter transparency panel showing the sample funnel and operational metadata."""
+def _draw_analysis_info_panel(ax, layers_data, report_mode, analysis_config=None):
+    """Draw an analysis info panel showing criteria, settling, filter config, and sample funnel."""
+    cfg = analysis_config or {}
+
+    # --- Collect sample funnel counts ---
     total_samples = 0
     settled_samples = 0
     included_samples = 0
     filtered_out_samples = 0
-    mu_fraction_sum = 0.0
-    mu_fraction_count = 0
-    fallback_layers = []
-    never_settled_layers = []
-    overlap_values = []
 
     for layer in layers_data:
         r = layer.get("results", {})
-        raw_idx = layer.get("layer_index", 0)
-        layer_label = str(int(raw_idx) // 2 + 1)
-
-        # Count total samples from diff arrays
         diff_x = r.get("diff_x")
         if diff_x is not None:
             n = len(np.asarray(diff_x))
@@ -234,104 +228,95 @@ def _draw_filter_panel(ax, layers_data, report_mode):
         settling_count = r.get("settling_samples_count", 0)
         settled_samples += (n - settling_count)
 
-        # Track settling issues
-        if r.get("settling_status") == "never_settled":
-            never_settled_layers.append(layer_label)
-
-        # Track time overlap
-        overlap = r.get("time_overlap_fraction")
-        if overlap is not None:
-            overlap_values.append(overlap)
-
         if report_mode != "raw":
-            num_included = r.get("num_included_samples", 0)
-            num_filtered = r.get("num_filtered_samples", 0)
-            included_samples += num_included
-            filtered_out_samples += num_filtered
-            mu_frac = r.get("filtered_mu_fraction_estimate")
-            if mu_frac is not None:
-                mu_fraction_sum += mu_frac
-                mu_fraction_count += 1
-            if r.get("filtered_stats_fallback_to_raw", False):
-                fallback_layers.append(layer_label)
+            included_samples += r.get("num_included_samples", 0)
+            filtered_out_samples += r.get("num_filtered_samples", 0)
         else:
             included_samples += (n - settling_count)
 
-    ax.set_title("Filter Transparency", fontsize=8, fontweight="bold", pad=4)
+    # --- Build table rows ---
+    table_data = []
 
-    warn_color = "#c0392b"
+    # Section 1: Pass/fail thresholds (read dynamically from THRESHOLDS)
+    table_data.append(["\u2500 Criteria \u2500", ""])
+    table_data.append(["Mean |diff|", f"\u2264 {THRESHOLDS['mean_diff_mm']:.1f} mm"])
+    table_data.append(["Std diff", f"\u2264 {THRESHOLDS['std_diff_mm']:.1f} mm"])
+    table_data.append(["Max |diff|", f"\u2264 {THRESHOLDS['max_abs_diff_mm']:.1f} mm"])
 
-    # Build table rows
-    if report_mode == "raw":
-        table_data = [
-            ["Total samples", f"{total_samples:,}"],
-            ["After settling", f"{settled_samples:,}"],
-            ["Filter mode", "raw (off)"],
-        ]
-    else:
-        avg_mu_pct = (
-            (mu_fraction_sum / mu_fraction_count * 100)
-            if mu_fraction_count > 0
-            else 0
-        )
-        table_data = [
-            ["Total", f"{total_samples:,}"],
-            ["Settled", f"{settled_samples:,}"],
-            ["Filtered out", f"{filtered_out_samples:,}"],
-            ["Included", f"{included_samples:,}"],
-            ["MU filtered-out", f"{avg_mu_pct:.1f}%"],
-        ]
+    # Section 2: Settling parameters
+    settle_thresh = cfg.get("SETTLING_THRESHOLD_MM")
+    settle_consec = cfg.get("SETTLING_CONSECUTIVE_SAMPLES")
+    settle_window = cfg.get("SETTLING_WINDOW_SAMPLES")
+    if settle_thresh is not None:
+        table_data.append(["\u2500 Settling \u2500", ""])
+        table_data.append(["Threshold", f"{settle_thresh:.2f} mm"])
+        if settle_consec is not None:
+            table_data.append(["Consec. samples", f"{int(settle_consec)}"])
+        if settle_window is not None:
+            table_data.append(["Window samples", f"{int(settle_window)}"])
 
-    if overlap_values:
-        min_overlap = min(overlap_values)
-        table_data.append(["Time overlap (min)", f"{min_overlap:.1%}"])
+    # Section 3: Zero-dose filter
+    zd_enabled = cfg.get("ZERO_DOSE_FILTER_ENABLED")
+    if zd_enabled is not None:
+        table_data.append(["\u2500 Zero-dose \u2500", ""])
+        if not zd_enabled:
+            table_data.append(["Filter", "Disabled"])
+        else:
+            table_data.append(["Filter", "Enabled"])
+            zd_max_mu = cfg.get("ZERO_DOSE_MAX_MU")
+            if zd_max_mu is not None:
+                table_data.append(["Max MU", f"{zd_max_mu:.4f}"])
+            zd_holdoff = cfg.get("ZERO_DOSE_BOUNDARY_HOLDOFF_S")
+            if zd_holdoff is not None:
+                table_data.append(["Boundary holdoff", f"{zd_holdoff:.4f} s"])
+            zd_report = cfg.get("ZERO_DOSE_REPORT_MODE")
+            if zd_report is not None:
+                table_data.append(["Report mode", str(zd_report)])
 
-    if never_settled_layers:
-        trunc = never_settled_layers[:5]
-        label = f"L{', L'.join(trunc)}"
-        if len(never_settled_layers) > 5:
-            label += f" +{len(never_settled_layers) - 5}"
-        table_data.append(["Never settled", label])
+    # Section 4: Sample funnel (compact)
+    table_data.append(["\u2500 Samples \u2500", ""])
+    table_data.append(["Total", f"{total_samples:,}"])
+    table_data.append(["After settling", f"{settled_samples:,}"])
+    if report_mode != "raw":
+        table_data.append(["Filtered out", f"{filtered_out_samples:,}"])
+    table_data.append(["Included", f"{included_samples:,}"])
 
-    if fallback_layers:
-        table_data.append(["Fallback to raw", f"L{', L'.join(fallback_layers)}"])
+    ax.set_title("Analysis Info", fontsize=8, fontweight="bold", pad=4)
 
     tbl = ax.table(
         cellText=table_data,
-        colLabels=["Metric", "Value"],
+        colLabels=["Parameter", "Value"],
         loc="upper center", cellLoc="left",
         colWidths=[0.55, 0.45],
     )
     tbl.auto_set_font_size(False)
-    tbl.set_fontsize(6.5)
     num_rows = len(table_data)
-    row_scale = min(1.6, max(0.9, 10.0 / (num_rows + 1)))
+    tbl_fontsize = 6.0 if num_rows > 14 else 6.5
+    tbl.set_fontsize(tbl_fontsize)
+    row_scale = min(1.4, max(0.7, 12.0 / (num_rows + 1)))
     tbl.scale(1.0, row_scale)
 
     # Style header
     for j in range(2):
         tbl[0, j].set_facecolor("#34495e")
-        tbl[0, j].set_text_props(color="white", fontweight="bold", fontsize=6.5)
+        tbl[0, j].set_text_props(color="white", fontweight="bold", fontsize=tbl_fontsize)
 
     # Style data rows
+    section_color = "#e8e8e8"
     for i in range(num_rows):
         row_idx = i + 1
         label_text = table_data[i][0]
-        tbl[row_idx, 0].set_text_props(fontweight="bold")
-        tbl[row_idx, 0].set_facecolor("#f8f8f8")
-        tbl[row_idx, 1].set_facecolor("white")
 
-        # Highlight warnings in red
-        is_warning = False
-        if label_text == "Time overlap (min)" and overlap_values and min(overlap_values) < 0.95:
-            is_warning = True
-        elif label_text in ("Never settled", "Fallback to raw"):
-            is_warning = True
-
-        if is_warning:
-            tbl[row_idx, 0].set_text_props(fontweight="bold", color=warn_color)
-            tbl[row_idx, 1].set_text_props(color=warn_color)
-            tbl[row_idx, 1].set_facecolor("#fdedec")
+        # Section separator rows
+        if label_text.startswith("\u2500"):
+            tbl[row_idx, 0].set_facecolor("#5d6d7e")
+            tbl[row_idx, 0].set_text_props(color="white", fontweight="bold", fontsize=tbl_fontsize)
+            tbl[row_idx, 1].set_facecolor("#5d6d7e")
+            tbl[row_idx, 1].set_text_props(color="white", fontsize=tbl_fontsize)
+        else:
+            tbl[row_idx, 0].set_text_props(fontweight="bold")
+            tbl[row_idx, 0].set_facecolor("#f8f8f8")
+            tbl[row_idx, 1].set_facecolor("white")
 
 
 def _spot_pass_summary(results, report_mode="raw"):
@@ -474,17 +459,50 @@ def _layer_flag_codes(flag_rows, num_layers):
 
 def _draw_layer_heatmap(
     fig,
+    title_ax,
+    header_ax,
     ax,
     heatmap_values,
     layer_labels,
     metric_labels,
     flag_rows=None,
     flag_ax=None,
+    flag_legend_ax=None,
     cbar_ax=None,
 ):
     """Draw a compact all-layer heatmap with an optional single-column flag view."""
     heatmap_values = np.asarray(heatmap_values, dtype=float)
     num_metrics, num_layers = heatmap_values.shape if heatmap_values.size else (0, 0)
+
+    title_ax.axis("off")
+    title_ax.text(
+        0.5,
+        0.5,
+        "Layer Heatmap",
+        ha="center",
+        va="center",
+        fontsize=9,
+        fontweight="bold",
+        transform=title_ax.transAxes,
+    )
+
+    header_ax.axis("off")
+    if num_metrics >= 6:
+        header_ax.set_xlim(-0.5, num_metrics - 0.5)
+        header_ax.set_ylim(0, 1)
+        for idx, label in enumerate(metric_labels):
+            header_ax.text(
+                idx,
+                0.35,
+                label,
+                ha="center",
+                va="center",
+                fontsize=6,
+            )
+        header_ax.plot([-0.5, 2.5], [0.88, 0.88], color="#34495e", linewidth=0.8)
+        header_ax.plot([2.5, 5.5], [0.88, 0.88], color="#34495e", linewidth=0.8)
+        header_ax.text(1.0, 0.95, "X", ha="center", va="bottom", fontsize=6, fontweight="bold")
+        header_ax.text(4.0, 0.95, "Y", ha="center", va="bottom", fontsize=6, fontweight="bold")
 
     cmap = plt.cm.RdYlGn_r
     norm = Normalize(vmin=0, vmax=THRESHOLDS["max_abs_diff_mm"])
@@ -496,10 +514,9 @@ def _draw_layer_heatmap(
         norm=norm,
         origin="upper",
     )
-    ax.set_title("Layer Heatmap", fontsize=9, fontweight="bold", pad=6)
     ax.set_yticks(np.arange(num_layers))
     ax.set_xticks(np.arange(num_metrics))
-    ax.set_xticklabels(metric_labels, fontsize=6)
+    ax.set_xticklabels([])
 
     if num_layers > 25:
         tick_step = max(1, int(np.ceil(num_layers / 25)))
@@ -511,29 +528,8 @@ def _draw_layer_heatmap(
 
     ax.set_xlabel("Metric", fontsize=7)
     ax.set_ylabel("Layer", fontsize=7)
-    ax.tick_params(axis="x", rotation=0, pad=1, labelsize=6)
+    ax.tick_params(axis="x", length=0, pad=1, labelsize=6)
     ax.tick_params(axis="y", labelsize=6)
-    if num_metrics >= 6:
-        ax.text(
-            1.0,
-            -0.10,
-            "X",
-            ha="center",
-            va="top",
-            fontsize=6,
-            fontweight="bold",
-            transform=ax.get_xaxis_transform(),
-        )
-        ax.text(
-            4.0,
-            -0.10,
-            "Y",
-            ha="center",
-            va="top",
-            fontsize=6,
-            fontweight="bold",
-            transform=ax.get_xaxis_transform(),
-        )
 
     cbar = fig.colorbar(
         image,
@@ -584,6 +580,19 @@ def _draw_layer_heatmap(
                     fontweight="bold",
                     color="black",
                 )
+        legend_target_ax = flag_legend_ax or flag_ax
+        if flag_legend_ax is not None:
+            flag_legend_ax.axis("off")
+        legend_target_ax.text(
+            0.5,
+            0.5 if flag_legend_ax is not None else -0.10,
+            "FAIL = layer fail  |  FB = fallback to raw  |  NS = never settled  |  OV = low overlap",
+            ha="center",
+            va="center",
+            fontsize=4.5,
+            transform=legend_target_ax.transAxes,
+            clip_on=flag_legend_ax is None,
+        )
 
     return image, flag_image
 
@@ -594,6 +603,7 @@ def _generate_summary_page(
     patient_id="",
     patient_name="",
     report_mode="raw",
+    analysis_config=None,
 ):
     """
     Generates a one-page A4 summary dashboard for a single beam.
@@ -802,13 +812,26 @@ def _generate_summary_page(
     middle_gs = fig.add_gridspec(
         1, 2,
         left=0.06, right=0.97,
-        bottom=0.27, top=0.75,
+        bottom=0.28, top=0.78,
         wspace=0.16,
         width_ratios=[0.9, 1.3],
     )
 
     # --- Middle-left: Vertically long layer trend plot ---
-    ax_err = fig.add_subplot(middle_gs[0, 0])
+    left_gs = middle_gs[0, 0].subgridspec(
+        5, 1,
+        height_ratios=[0.06, 0.08, 0.76, 0.06, 0.04],
+        hspace=0.08,
+    )
+    ax_trend_title = fig.add_subplot(left_gs[0, 0])
+    ax_trend_title.axis("off")
+    ax_trend_title.text(
+        0.5, 0.5, "Layer Trend",
+        ha="center", va="center",
+        fontsize=9, fontweight="bold",
+        transform=ax_trend_title.transAxes,
+    )
+    ax_err = fig.add_subplot(left_gs[1:, 0])
     layer_idx = np.arange(1, num_layers + 1)
     worst_axis_error = np.maximum(np.array(max_x_all), np.array(max_y_all))
     y_x = layer_idx - 0.16
@@ -892,7 +915,6 @@ def _generate_summary_page(
     )
     ax_err.set_xlabel("Deviation (mm)", fontsize=7)
     ax_err.set_ylabel("Layer", fontsize=7)
-    ax_err.set_title("Layer Trend", fontsize=9)
     ax_err.set_yticks(layer_idx)
     ax_err.set_yticklabels(layer_labels)
     ax_err.set_ylim(num_layers + 0.6, 0.4)
@@ -904,15 +926,18 @@ def _generate_summary_page(
 
     # --- Middle-right: All-layer heatmap ---
     right_gs = middle_gs[0, 1].subgridspec(
-        2, 2,
-        height_ratios=[0.90, 0.10],
+        5, 2,
+        height_ratios=[0.06, 0.08, 0.76, 0.06, 0.04],
         width_ratios=[0.90, 0.10],
-        hspace=0.18,
+        hspace=0.08,
         wspace=0.08,
     )
-    ax_heatmap = fig.add_subplot(right_gs[0, 0])
-    ax_heatmap_flags = fig.add_subplot(right_gs[0, 1])
-    ax_heatmap_cbar = fig.add_subplot(right_gs[1, :])
+    ax_heatmap_title = fig.add_subplot(right_gs[0, :])
+    ax_heatmap_header = fig.add_subplot(right_gs[1, 0])
+    ax_heatmap = fig.add_subplot(right_gs[2, 0])
+    ax_heatmap_flags = fig.add_subplot(right_gs[2, 1])
+    ax_heatmap_cbar = fig.add_subplot(right_gs[3, :])
+    ax_heatmap_flag_legend = fig.add_subplot(right_gs[4, :])
     heatmap_values = np.array([
         np.abs(mean_x_all),
         np.abs(mean_y_all),
@@ -942,12 +967,15 @@ def _generate_summary_page(
 
     _draw_layer_heatmap(
         fig,
+        ax_heatmap_title,
+        ax_heatmap_header,
         ax_heatmap,
         heatmap_values,
         layer_labels,
-        ["|mu_x|", "|mu_y|", "std_x", "std_y", "max_x", "max_y"],
+        ["Mean", "Std", "Max", "Mean", "Std", "Max"],
         flag_rows=flag_rows if flag_rows else None,
         flag_ax=ax_heatmap_flags,
+        flag_legend_ax=ax_heatmap_flag_legend,
         cbar_ax=ax_heatmap_cbar,
     )
 
@@ -955,13 +983,13 @@ def _generate_summary_page(
     bottom_gs = fig.add_gridspec(
         1, 2,
         left=0.06, right=0.97,
-        bottom=0.05, top=0.22,
+        bottom=0.03, top=0.24,
         wspace=0.10,
-        width_ratios=[1.2, 1.0],
+        width_ratios=[1.4, 1.0],
     )
     ax_filter = fig.add_subplot(bottom_gs[0, 0])
     ax_filter.axis("off")
-    _draw_filter_panel(ax_filter, layers_data, report_mode)
+    _draw_analysis_info_panel(ax_filter, layers_data, report_mode, analysis_config)
 
     ax_worst = fig.add_subplot(bottom_gs[0, 1])
     ax_worst.axis("off")
@@ -1155,6 +1183,7 @@ def generate_report(
     report_style="summary",
     report_name=None,
     report_mode="raw",
+    analysis_config=None,
 ):
     """
     Generates a PDF report with analysis plots organized by beam.
@@ -1191,6 +1220,7 @@ def generate_report(
                     patient_id=patient_id,
                     patient_name=patient_name,
                     report_mode=report_mode,
+                    analysis_config=analysis_config,
                 )
                 pdf.savefig(summary_fig)
                 plt.close(summary_fig)
