@@ -493,16 +493,16 @@ def _draw_layer_heatmap(
         for idx, label in enumerate(metric_labels):
             header_ax.text(
                 idx,
-                0.35,
+                0.54,
                 label,
                 ha="center",
                 va="center",
                 fontsize=6,
             )
-        header_ax.plot([-0.5, 2.5], [0.88, 0.88], color="#34495e", linewidth=0.8)
-        header_ax.plot([2.5, 5.5], [0.88, 0.88], color="#34495e", linewidth=0.8)
-        header_ax.text(1.0, 0.95, "X", ha="center", va="bottom", fontsize=6, fontweight="bold")
-        header_ax.text(4.0, 0.95, "Y", ha="center", va="bottom", fontsize=6, fontweight="bold")
+        header_ax.plot([-0.5, 2.5], [0.66, 0.66], color="#34495e", linewidth=0.8)
+        header_ax.plot([2.5, 5.5], [0.66, 0.66], color="#34495e", linewidth=0.8)
+        header_ax.text(1.0, 0.70, "X", ha="center", va="bottom", fontsize=6, fontweight="bold")
+        header_ax.text(4.0, 0.70, "Y", ha="center", va="bottom", fontsize=6, fontweight="bold")
 
     cmap = plt.cm.RdYlGn_r
     norm = Normalize(vmin=0, vmax=THRESHOLDS["max_abs_diff_mm"])
@@ -927,9 +927,9 @@ def _generate_summary_page(
     # --- Middle-right: All-layer heatmap ---
     right_gs = middle_gs[0, 1].subgridspec(
         5, 2,
-        height_ratios=[0.06, 0.08, 0.76, 0.06, 0.04],
+        height_ratios=[0.06, 0.06, 0.815, 0.025, 0.04],
         width_ratios=[0.90, 0.10],
-        hspace=0.08,
+        hspace=0.01,
         wspace=0.08,
     )
     ax_heatmap_title = fig.add_subplot(right_gs[0, :])
@@ -938,6 +938,24 @@ def _generate_summary_page(
     ax_heatmap_flags = fig.add_subplot(right_gs[2, 1])
     ax_heatmap_cbar = fig.add_subplot(right_gs[3, :])
     ax_heatmap_flag_legend = fig.add_subplot(right_gs[4, :])
+    desired_header_heatmap_gap = 0.0002
+    heatmap_pos = ax_heatmap.get_position()
+    header_pos = ax_heatmap_header.get_position()
+    tightened_heatmap_top = header_pos.y0 - desired_header_heatmap_gap
+    if tightened_heatmap_top > heatmap_pos.y1:
+        ax_heatmap.set_position([
+            heatmap_pos.x0,
+            heatmap_pos.y0,
+            heatmap_pos.width,
+            tightened_heatmap_top - heatmap_pos.y0,
+        ])
+        flag_pos = ax_heatmap_flags.get_position()
+        ax_heatmap_flags.set_position([
+            flag_pos.x0,
+            flag_pos.y0,
+            flag_pos.width,
+            tightened_heatmap_top - flag_pos.y0,
+        ])
     heatmap_values = np.array([
         np.abs(mean_x_all),
         std_x_all,
