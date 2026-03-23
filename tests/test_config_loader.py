@@ -97,6 +97,61 @@ class TestConfigLoader(unittest.TestCase):
         )
         self.assertEqual(config["ZERO_DOSE_REPORT_MODE"], "both")
 
+    def test_parse_yaml_config_maps_gamma_analysis_settings(self):
+        yaml_path = os.path.join(self.test_dir, "config.yaml")
+        with open(yaml_path, "w", encoding="utf-8") as f:
+            f.write("# PTN Checker Configuration\n")
+            f.write("app:\n")
+            f.write("  report_style_summary: true\n")
+            f.write("  export_pdf_report: false\n")
+            f.write("  export_report_csv: false\n")
+            f.write("  save_debug_csv: false\n")
+            f.write("  analysis_mode: gamma\n")
+            f.write("gamma:\n")
+            f.write("  fluence_percent_threshold: 5.0\n")
+            f.write("  distance_mm_threshold: 2.0\n")
+            f.write("  lower_percent_fluence_cutoff: 10.0\n")
+            f.write("  spot_tolerance_mm: 1.5\n")
+            f.write("  require_planrange_mu_correction: true\n")
+            f.write("  allow_relative_fluence_fallback: false\n")
+            f.write("zero_dose_filter:\n")
+            f.write("  enabled: false\n")
+            f.write('  report_mode: "filtered"\n')
+
+        config = parse_yaml_config(yaml_path)
+
+        self.assertEqual(config["ANALYSIS_MODE"], "gamma")
+        self.assertEqual(config["GAMMA_FLUENCE_PERCENT_THRESHOLD"], 5.0)
+        self.assertEqual(config["GAMMA_DISTANCE_MM_THRESHOLD"], 2.0)
+        self.assertEqual(config["GAMMA_SPOT_TOLERANCE_MM"], 1.5)
+        self.assertTrue(config["GAMMA_REQUIRE_PLANRANGE_MU_CORRECTION"])
+        self.assertFalse(config["GAMMA_ALLOW_RELATIVE_FLUENCE_FALLBACK"])
+
+    def test_parse_yaml_config_maps_machine_specific_normalization_factors(self):
+        yaml_path = os.path.join(self.test_dir, "config.yaml")
+        with open(yaml_path, "w", encoding="utf-8") as f:
+            f.write("app:\n")
+            f.write("  report_style_summary: true\n")
+            f.write("  export_pdf_report: false\n")
+            f.write("  export_report_csv: false\n")
+            f.write("  save_debug_csv: false\n")
+            f.write("  analysis_mode: gamma\n")
+            f.write("gamma:\n")
+            f.write("  fluence_percent_threshold: 5.0\n")
+            f.write("  distance_mm_threshold: 2.0\n")
+            f.write("  normalization_factor_by_machine:\n")
+            f.write("    G1: 5.5e-7\n")
+            f.write("    g2: 5.0e-7\n")
+
+        config = parse_yaml_config(yaml_path)
+
+        self.assertEqual(config["GAMMA_FLUENCE_PERCENT_THRESHOLD"], 5.0)
+        self.assertEqual(config["GAMMA_DISTANCE_MM_THRESHOLD"], 2.0)
+        self.assertEqual(
+            config["GAMMA_NORMALIZATION_FACTOR_BY_MACHINE"],
+            {"G1": 5.5e-7, "G2": 5.0e-7},
+        )
+
     def test_parse_yaml_config_rejects_invalid_report_style(self):
         yaml_path = os.path.join(self.test_dir, "config.yaml")
         with open(yaml_path, "w", encoding="utf-8") as f:
@@ -122,6 +177,20 @@ class TestConfigLoader(unittest.TestCase):
             f.write('  report_mode: "invalid"\n')
 
         with self.assertRaisesRegex(ValueError, "ZERO_DOSE_REPORT_MODE"):
+            parse_yaml_config(yaml_path)
+
+    def test_parse_yaml_config_rejects_string_gamma_booleans(self):
+        yaml_path = os.path.join(self.test_dir, "config.yaml")
+        with open(yaml_path, "w", encoding="utf-8") as f:
+            f.write("app:\n")
+            f.write("  report_style_summary: true\n")
+            f.write("  export_pdf_report: false\n")
+            f.write("  export_report_csv: false\n")
+            f.write("  save_debug_csv: false\n")
+            f.write("gamma:\n")
+            f.write('  require_planrange_mu_correction: "false"\n')
+
+        with self.assertRaisesRegex(ValueError, "require_planrange_mu_correction"):
             parse_yaml_config(yaml_path)
 
 

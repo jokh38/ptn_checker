@@ -317,6 +317,278 @@ class TestMain(unittest.TestCase):
         self.assertTrue(captured_configs[0]["ZERO_DOSE_FILTER_ENABLED"])
         self.assertEqual(captured_configs[0]["ZERO_DOSE_REPORT_MODE"], "filtered")
 
+    def test_run_analysis_routes_gamma_mode_to_gamma_calculator(self):
+        output_dir = os.path.join(self.test_dir, "output_gamma")
+        os.makedirs(output_dir)
+
+        plan_data = {
+            "patient_id": "123456",
+            "patient_name": "Test^Gamma",
+            "machine_name": "G1",
+            "beams": {
+                1: {
+                    "name": "Beam 1",
+                    "layers": {
+                        0: {
+                            "time_axis_s": np.array([0.0]),
+                            "trajectory_x_mm": np.array([0.0]),
+                            "trajectory_y_mm": np.array([0.0]),
+                            "positions": np.array([[0.0, 0.0]]),
+                            "mu": np.array([1.0]),
+                            "cumulative_mu": np.array([1.0]),
+                            "spot_is_transit_min_dose": np.array([False]),
+                        }
+                    },
+                }
+            },
+        }
+
+        gamma_config = {
+            "REPORT_STYLE_SUMMARY": True,
+            "REPORT_STYLE": "summary",
+            "EXPORT_PDF_REPORT": False,
+            "EXPORT_REPORT_CSV": False,
+            "SAVE_DEBUG_CSV": False,
+            "ZERO_DOSE_REPORT_MODE": "filtered",
+            "ANALYSIS_MODE": "gamma",
+            "GAMMA_FLUENCE_PERCENT_THRESHOLD": 3.0,
+            "GAMMA_DISTANCE_MM_THRESHOLD": 2.0,
+            "GAMMA_LOWER_PERCENT_FLUENCE_CUTOFF": 10.0,
+            "GAMMA_SPOT_TOLERANCE_MM": 1.5,
+            "GAMMA_REQUIRE_PLANRANGE_MU_CORRECTION": True,
+            "GAMMA_ALLOW_RELATIVE_FLUENCE_FALLBACK": False,
+        }
+
+        gamma_results = {
+            "pass_rate": 100.0,
+            "gamma_mean": 0.0,
+            "gamma_max": 0.0,
+            "evaluated_point_count": 1,
+            "plan_fluence_max": 1.0,
+            "log_fluence_max": 1.0,
+            "normalization_mode": "primary",
+            "used_planrange_mu_correction": True,
+            "unmatched_delivered_weight": 0.0,
+        }
+
+        def forbidden_trajectory_calculator(*args, **kwargs):
+            self.fail("Gamma mode should not call the trajectory calculator")
+
+        gamma_calculator_mock = mock.Mock(return_value=gamma_results)
+
+        with mock.patch.object(
+            main, "parse_yaml_config", return_value=gamma_config
+        ), mock.patch.object(
+            main, "load_plan_and_machine_config", return_value=(plan_data, {})
+        ), mock.patch.object(
+            main, "collect_ptn_delivery_groups",
+            return_value=[
+                {
+                    "source_dir": self.test_dir,
+                    "ptn_files": [os.path.join(self.test_dir, "gamma_layer.ptn")],
+                    "planrange_lookup": {},
+                    "beam_number": 1,
+                }
+            ],
+        ), mock.patch.object(
+            main,
+            "parse_ptn_with_optional_mu_correction",
+            return_value={"time_ms": np.array([0.0]), "x": np.array([0.0]), "y": np.array([0.0])},
+        ), mock.patch.object(
+            main,
+            "calculate_differences_for_layer",
+            side_effect=forbidden_trajectory_calculator,
+        ), mock.patch.object(
+            main,
+            "calculate_gamma_for_layer",
+            gamma_calculator_mock,
+            create=True,
+        ), mock.patch.object(main, "generate_report"):
+            run_analysis(self.test_dir, self.dcm_file, output_dir)
+
+        self.assertEqual(1, gamma_calculator_mock.call_count)
+
+    def test_run_analysis_uses_machine_specific_gamma_normalization_factor(self):
+        output_dir = os.path.join(self.test_dir, "output_gamma_factor")
+        os.makedirs(output_dir)
+
+        plan_data = {
+            "patient_id": "123456",
+            "patient_name": "Test^GammaFactor",
+            "machine_name": "G2",
+            "beams": {
+                1: {
+                    "name": "Beam 1",
+                    "layers": {
+                        0: {
+                            "time_axis_s": np.array([0.0]),
+                            "trajectory_x_mm": np.array([0.0]),
+                            "trajectory_y_mm": np.array([0.0]),
+                            "positions": np.array([[0.0, 0.0]]),
+                            "mu": np.array([1.0]),
+                            "cumulative_mu": np.array([1.0]),
+                            "spot_is_transit_min_dose": np.array([False]),
+                        }
+                    },
+                }
+            },
+        }
+
+        gamma_config = {
+            "REPORT_STYLE_SUMMARY": True,
+            "REPORT_STYLE": "summary",
+            "EXPORT_PDF_REPORT": False,
+            "EXPORT_REPORT_CSV": False,
+            "SAVE_DEBUG_CSV": False,
+            "ZERO_DOSE_REPORT_MODE": "filtered",
+            "ANALYSIS_MODE": "gamma",
+            "GAMMA_FLUENCE_PERCENT_THRESHOLD": 5.0,
+            "GAMMA_DISTANCE_MM_THRESHOLD": 2.0,
+            "GAMMA_LOWER_PERCENT_FLUENCE_CUTOFF": 10.0,
+            "GAMMA_SPOT_TOLERANCE_MM": 1.5,
+            "GAMMA_REQUIRE_PLANRANGE_MU_CORRECTION": True,
+            "GAMMA_ALLOW_RELATIVE_FLUENCE_FALLBACK": False,
+            "GAMMA_NORMALIZATION_FACTOR_BY_MACHINE": {"G1": 5.5e-7, "G2": 5.0e-7},
+        }
+
+        gamma_results = {
+            "pass_rate": 100.0,
+            "gamma_mean": 0.0,
+            "gamma_max": 0.0,
+            "evaluated_point_count": 1,
+            "plan_fluence_max": 1.0,
+            "log_fluence_max": 1.0,
+            "normalization_mode": "primary",
+            "used_planrange_mu_correction": True,
+            "unmatched_delivered_weight": 0.0,
+        }
+
+        gamma_calculator_mock = mock.Mock(return_value=gamma_results)
+
+        with mock.patch.object(
+            main, "parse_yaml_config", return_value=gamma_config
+        ), mock.patch.object(
+            main, "load_plan_and_machine_config", return_value=(plan_data, {})
+        ), mock.patch.object(
+            main, "collect_ptn_delivery_groups",
+            return_value=[
+                {
+                    "source_dir": self.test_dir,
+                    "ptn_files": [os.path.join(self.test_dir, "gamma_layer.ptn")],
+                    "planrange_lookup": {},
+                    "beam_number": 1,
+                }
+            ],
+        ), mock.patch.object(
+            main,
+            "parse_ptn_with_optional_mu_correction",
+            return_value={"time_ms": np.array([0.0]), "x": np.array([0.0]), "y": np.array([0.0])},
+        ), mock.patch.object(
+            main,
+            "calculate_gamma_for_layer",
+            gamma_calculator_mock,
+            create=True,
+        ), mock.patch.object(main, "generate_report"):
+            run_analysis(self.test_dir, self.dcm_file, output_dir)
+
+        passed_config = gamma_calculator_mock.call_args.args[2]
+        self.assertEqual(5.0e-7, passed_config["GAMMA_NORMALIZATION_FACTOR"])
+
+    def test_run_analysis_routes_gamma_mode_to_gamma_pdf_report(self):
+        output_dir = os.path.join(self.test_dir, "output_gamma_pdf")
+        os.makedirs(output_dir)
+
+        plan_data = {
+            "patient_id": "123456",
+            "patient_name": "Test^GammaPDF",
+            "machine_name": "G1",
+            "beams": {
+                1: {
+                    "name": "Beam 1",
+                    "layers": {
+                        0: {
+                            "time_axis_s": np.array([0.0]),
+                            "trajectory_x_mm": np.array([0.0]),
+                            "trajectory_y_mm": np.array([0.0]),
+                            "positions": np.array([[0.0, 0.0]]),
+                            "mu": np.array([1.0]),
+                            "cumulative_mu": np.array([1.0]),
+                            "spot_is_transit_min_dose": np.array([False]),
+                        }
+                    },
+                }
+            },
+        }
+
+        gamma_config = {
+            "REPORT_STYLE_SUMMARY": True,
+            "REPORT_STYLE": "summary",
+            "EXPORT_PDF_REPORT": True,
+            "EXPORT_REPORT_CSV": False,
+            "SAVE_DEBUG_CSV": False,
+            "ZERO_DOSE_REPORT_MODE": "filtered",
+            "ANALYSIS_MODE": "gamma",
+            "GAMMA_FLUENCE_PERCENT_THRESHOLD": 3.0,
+            "GAMMA_DISTANCE_MM_THRESHOLD": 2.0,
+            "GAMMA_LOWER_PERCENT_FLUENCE_CUTOFF": 10.0,
+            "GAMMA_SPOT_TOLERANCE_MM": 1.5,
+            "GAMMA_REQUIRE_PLANRANGE_MU_CORRECTION": True,
+            "GAMMA_ALLOW_RELATIVE_FLUENCE_FALLBACK": False,
+            "GAMMA_USE_GAUSSIAN_SPOT_MODEL": False,
+            "GAMMA_GAUSSIAN_SIGMA_MM": 3.0,
+            "GAMMA_MAP_MARGIN_MM": 0.0,
+        }
+
+        gamma_results = {
+            "pass_rate": 100.0,
+            "gamma_mean": 0.0,
+            "gamma_max": 0.0,
+            "evaluated_point_count": 1,
+            "plan_fluence_max": 1.0,
+            "log_fluence_max": 1.0,
+            "normalization_mode": "primary",
+            "used_planrange_mu_correction": True,
+            "unmatched_delivered_weight": 0.0,
+        }
+
+        gamma_calculator_mock = mock.Mock(return_value=gamma_results)
+        gamma_pdf_mock = mock.Mock()
+        trajectory_pdf_mock = mock.Mock()
+
+        with mock.patch.object(
+            main, "parse_yaml_config", return_value=gamma_config
+        ), mock.patch.object(
+            main, "load_plan_and_machine_config", return_value=(plan_data, {})
+        ), mock.patch.object(
+            main, "collect_ptn_delivery_groups",
+            return_value=[
+                {
+                    "source_dir": self.test_dir,
+                    "ptn_files": [os.path.join(self.test_dir, "gamma_layer.ptn")],
+                    "planrange_lookup": {},
+                    "beam_number": 1,
+                }
+            ],
+        ), mock.patch.object(
+            main,
+            "parse_ptn_with_optional_mu_correction",
+            return_value={"time_ms": np.array([0.0]), "x": np.array([0.0]), "y": np.array([0.0])},
+        ), mock.patch.object(
+            main,
+            "calculate_gamma_for_layer",
+            gamma_calculator_mock,
+            create=True,
+        ), mock.patch.object(
+            main,
+            "generate_gamma_report",
+            gamma_pdf_mock,
+            create=True,
+        ), mock.patch.object(main, "generate_report", trajectory_pdf_mock):
+            run_analysis(self.test_dir, self.dcm_file, output_dir)
+
+        gamma_pdf_mock.assert_called_once()
+        trajectory_pdf_mock.assert_not_called()
+
     def test_run_analysis_matches_single_delivery_to_beam_by_layer_count(self):
         log_dir = os.path.join(self.test_dir, "single_delivery")
         os.makedirs(log_dir)

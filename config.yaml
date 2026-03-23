@@ -6,6 +6,22 @@ app:
   export_pdf_report: true
   export_report_csv: false
   save_debug_csv: false
+  analysis_mode: gamma
+
+gamma:
+  fluence_percent_threshold: 5.0
+  distance_mm_threshold: 2.0
+  lower_percent_fluence_cutoff: 10.0
+  grid_resolution_mm: 3.0
+  spot_tolerance_mm: 1.0
+  require_planrange_mu_correction: true
+  allow_relative_fluence_fallback: true
+  use_gaussian_spot_model: true
+  gaussian_sigma_mm: 3.0
+  map_margin_mm: 2.0
+  normalization_factor_by_machine:
+    G1: 5.5e-7
+    G2: 5.0e-7
 
 zero_dose_filter:
   enabled: true

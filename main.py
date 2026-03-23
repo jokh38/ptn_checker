@@ -10,6 +10,8 @@ from src.analysis_context import (
     parse_ptn_with_optional_mu_correction,
 )
 from src.calculator import calculate_differences_for_layer
+from src.gamma_workflow import calculate_gamma_for_layer
+from src.gamma_report_generator import generate_gamma_report
 from src.report_generator import generate_report
 from src.report_csv_exporter import export_report_csv
 from src.config_loader import parse_yaml_config
@@ -17,6 +19,24 @@ from src.planrange_parser import parse_planrange_for_directory
 from src.ptn_discovery import find_ptn_files as discover_ptn_files
 
 logger = logging.getLogger(__name__)
+
+
+def _analysis_mode(config):
+    return str(config.get("ANALYSIS_MODE", "trajectory")).lower()
+
+
+def _resolve_machine_gamma_config(app_config, machine_name):
+    analysis_config = dict(app_config)
+    normalization_map = analysis_config.get(
+        "GAMMA_NORMALIZATION_FACTOR_BY_MACHINE", {}
+    )
+    if not isinstance(normalization_map, dict):
+        return analysis_config
+
+    normalization_factor = normalization_map.get(str(machine_name).upper())
+    if normalization_factor is not None:
+        analysis_config["GAMMA_NORMALIZATION_FACTOR"] = float(normalization_factor)
+    return analysis_config
 
 
 def derive_report_name(log_dir, today=None):
@@ -158,7 +178,7 @@ def run_analysis(log_dir, dcm_file, output_dir, report_name=None):
 
     machine_name = plan_data_raw.get("machine_name", "UNKNOWN")
     logger.info(f"Detected treatment machine: {machine_name}")
-    analysis_config = {**config, **app_config}
+    analysis_config = {**config, **_resolve_machine_gamma_config(app_config, machine_name)}
 
     delivery_groups = collect_ptn_delivery_groups(log_dir)
     if not delivery_groups:
@@ -246,13 +266,20 @@ def run_analysis(log_dir, dcm_file, output_dir, report_name=None):
                             f"debug_data_beam_{beam_number}_layer_{layer_number}.csv",
                         )
 
-                    analysis_results = calculate_differences_for_layer(
-                        layer_data,
-                        log_data_raw,
-                        save_to_csv=save_csv_for_this_layer,
-                        csv_filename=csv_filepath,
-                        config=analysis_config,
-                    )
+                    if _analysis_mode(analysis_config) == "gamma":
+                        analysis_results = calculate_gamma_for_layer(
+                            layer_data,
+                            log_data_raw,
+                            analysis_config,
+                        )
+                    else:
+                        analysis_results = calculate_differences_for_layer(
+                            layer_data,
+                            log_data_raw,
+                            save_to_csv=save_csv_for_this_layer,
+                            csv_filename=csv_filepath,
+                            config=analysis_config,
+                        )
                 except (KeyError, ValueError, TypeError) as e:
                     logger.error(
                         f"Error calculating differences for {beam_name}, Layer {layer_index}: {e}"
@@ -280,24 +307,34 @@ def run_analysis(log_dir, dcm_file, output_dir, report_name=None):
     ):
         raise ValueError("No analysis results were generated. Check logs for warnings.")
 
-    if app_config["EXPORT_REPORT_CSV"]:
+    if app_config["EXPORT_REPORT_CSV"] and _analysis_mode(analysis_config) != "gamma":
         logger.info(f"Generating report CSV files in directory: {output_dir}")
         export_report_csv(
             report_data,
             output_dir,
             report_mode=app_config["ZERO_DOSE_REPORT_MODE"],
         )
+    elif app_config["EXPORT_REPORT_CSV"]:
+        logger.warning("Gamma analysis CSV export is not implemented in this pass; skipping")
 
     if app_config["EXPORT_PDF_REPORT"]:
         logger.info(f"Generating PDF report in directory: {output_dir}")
-        generate_report(
-            report_data,
-            output_dir,
-            report_style=app_config["REPORT_STYLE"],
-            report_name=report_name,
-            report_mode=app_config["ZERO_DOSE_REPORT_MODE"],
-            analysis_config=analysis_config,
-        )
+        if _analysis_mode(analysis_config) == "gamma":
+            generate_gamma_report(
+                report_data,
+                output_dir,
+                report_name=report_name,
+                analysis_config=analysis_config,
+            )
+        else:
+            generate_report(
+                report_data,
+                output_dir,
+                report_style=app_config["REPORT_STYLE"],
+                report_name=report_name,
+                report_mode=app_config["ZERO_DOSE_REPORT_MODE"],
+                analysis_config=analysis_config,
+            )
     logger.info("Done.")
 
 
