@@ -131,5 +131,6 @@ def apply_mu_correction(
     corrected *= MU_COUNT_DOSE_INTERPOLATOR(nominal_energy)
     corrected *= get_monitor_range_factor(monitor_range_code)
     corrected /= dose_dividing_factor
+    log_data['mu_per_sample_corrected'] = corrected.astype(np.float32)
     log_data['mu'] = np.cumsum(corrected).astype(np.float32)
     return log_data

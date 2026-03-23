@@ -41,8 +41,21 @@ def parse_ptn_with_optional_mu_correction(
     """Parse a PTN file and apply MU correction when matching range metadata exists."""
     log_data = parse_ptn_file(ptn_file, config)
     range_info = planrange_lookup.get(os.path.abspath(ptn_file))
+    planrange_metadata = {
+        "found": False,
+        "applied": False,
+        "energy": None,
+        "dose1_range_code": None,
+    }
     if range_info is not None:
+        planrange_metadata = {
+            "found": True,
+            "applied": True,
+            "energy": float(range_info.energy),
+            "dose1_range_code": int(range_info.dose1_range_code),
+        }
         apply_mu_correction(log_data, range_info.energy, range_info.dose1_range_code)
     elif planrange_lookup:
         logger.warning("No PlanRange entry for %s, using uncorrected MU", ptn_file)
+    log_data["planrange_metadata"] = planrange_metadata
     return log_data
