@@ -6,8 +6,7 @@ from unittest import mock
 
 import numpy as np
 
-import layer_normalization_values
-from src import layer_normalization_values as normalization_impl
+from src import layer_normalization_values
 
 
 class TestLayerNormalizationValues(unittest.TestCase):
@@ -47,9 +46,9 @@ class TestLayerNormalizationValues(unittest.TestCase):
             ]
 
             with mock.patch.object(
-                normalization_impl, "load_plan_and_machine_config", return_value=(plan_data, {})
+                layer_normalization_values, "load_plan_and_machine_config", return_value=(plan_data, {})
             ), mock.patch.object(
-                normalization_impl,
+                layer_normalization_values,
                 "parse_planrange_for_directory",
                 return_value={
                     os.path.abspath(ptn_paths[0]): mock.Mock(
@@ -68,7 +67,7 @@ class TestLayerNormalizationValues(unittest.TestCase):
                     ),
                 },
             ), mock.patch.object(
-                normalization_impl,
+                layer_normalization_values,
                 "parse_ptn_with_optional_mu_correction",
                 side_effect=parsed_logs,
             ):

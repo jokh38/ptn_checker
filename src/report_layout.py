@@ -666,7 +666,7 @@ def _generate_summary_page(
                 "#d5f5e3" if ratio <= 0.5 else "#fdebd0" if ratio <= 1.0 else "#fadbd8"
             )
 
-    middle_gs = fig.add_gridspec(1, 2, left=0.06, right=0.97, bottom=0.20, top=0.78, wspace=0.16, width_ratios=[0.9, 1.3])
+    middle_gs = fig.add_gridspec(1, 2, left=0.06, right=0.97, bottom=0.12, top=0.78, wspace=0.16, width_ratios=[0.9, 1.3])
     left_gs = middle_gs[0, 0].subgridspec(5, 1, height_ratios=[0.04, 0.08, 0.76, 0.06, 0.04], hspace=0.08)
     ax_trend_title = fig.add_subplot(left_gs[0, 0])
     ax_trend_title.axis("off")
@@ -748,7 +748,7 @@ def _generate_summary_page(
         cbar_ax=ax_heatmap_cbar,
     )
 
-    bottom_gs = fig.add_gridspec(1, 2, left=0.06, right=0.97, bottom=0.03, top=0.16, wspace=0.10, width_ratios=[0.6, 1.0])
+    bottom_gs = fig.add_gridspec(1, 2, left=0.06, right=0.97, bottom=0.03, top=0.10, wspace=0.10, width_ratios=[0.6, 1.0])
     ax_filter = fig.add_subplot(bottom_gs[0, 0])
     ax_filter.axis("off")
     _draw_analysis_info_panel(ax_filter, layers_data, report_mode, analysis_config)
@@ -874,8 +874,8 @@ def _generate_point_gamma_summary_page(
         beam_count_error_mean=gamma_metrics["beam_count_error_mean"],
     )
 
-    middle_gs = fig.add_gridspec(1, 2, left=0.06, right=0.97, bottom=0.205, top=0.79, wspace=0.16, width_ratios=[1.0, 1.2])
-    left_gs = middle_gs[0, 0].subgridspec(5, 1, height_ratios=[0.06, 0.04, 0.80, 0.06, 0.04], hspace=0.08)
+    middle_gs = fig.add_gridspec(1, 2, left=0.06, right=0.97, bottom=0.13, top=0.79, wspace=0.16, width_ratios=[1.0, 1.2])
+    left_gs = middle_gs[0, 0].subgridspec(5, 1, height_ratios=[0.04, 0.01, 0.85, 0.06, 0.04], hspace=0.03)
     ax_trend_title = fig.add_subplot(left_gs[0, 0])
     ax_trend_title.axis("off")
     ax_trend_title.text(0.5, 0.5, "Layer Trend", ha="center", va="center", fontsize=9, fontweight="bold", transform=ax_trend_title.transAxes)
@@ -906,7 +906,7 @@ def _generate_point_gamma_summary_page(
         ax_err.tick_params(axis="y", labelsize=4)
     ax_err.legend(fontsize=5, loc="upper left")
 
-    right_gs = middle_gs[0, 1].subgridspec(5, 2, height_ratios=[0.06, 0.02, 0.855, 0.025, 0.04], width_ratios=[0.90, 0.10], hspace=0.01, wspace=0.08)
+    right_gs = middle_gs[0, 1].subgridspec(5, 2, height_ratios=[0.06, 0.02, 0.855, 0.025, 0.04], width_ratios=[0.90, 0.10], hspace=0.005, wspace=0.08)
     ax_heatmap_title = fig.add_subplot(right_gs[0, :])
     ax_heatmap_header = fig.add_subplot(right_gs[1, 0])
     ax_heatmap = fig.add_subplot(right_gs[2, 0])
@@ -943,7 +943,7 @@ def _generate_point_gamma_summary_page(
         side_text_labels=[f"{value:.0f}" for value in gamma_metrics["layer_pass_rates"]],
     )
 
-    bottom_gs = fig.add_gridspec(1, 1, left=0.06, right=0.97, bottom=0.015, top=0.18)
+    bottom_gs = fig.add_gridspec(1, 1, left=0.06, right=0.97, bottom=0.015, top=0.09)
     ax_filter = fig.add_subplot(bottom_gs[0, 0])
     ax_filter.axis("off")
     _draw_point_gamma_analysis_info_panel(

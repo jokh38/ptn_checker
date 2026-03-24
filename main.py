@@ -18,6 +18,8 @@ from src.planrange_parser import parse_planrange_for_directory
 from src.ptn_discovery import find_ptn_files as discover_ptn_files
 
 logger = logging.getLogger(__name__)
+# Keep this module-level alias for existing tests and callers.
+find_ptn_files = discover_ptn_files
 
 
 def _analysis_mode(config):
@@ -45,10 +47,6 @@ def derive_report_name(log_dir, today=None):
     return f"{case_id}_{report_date.isoformat()}"
 
 
-def find_ptn_files(directory):
-    return discover_ptn_files(directory)
-
-
 def collect_ptn_delivery_groups(log_dir):
     groups = []
 
@@ -72,7 +70,7 @@ def collect_ptn_delivery_groups(log_dir):
         key=os.path.basename,
     )
     for subdir in subdirs:
-        ptn_files = sorted(find_ptn_files(subdir))
+        ptn_files = sorted(discover_ptn_files(subdir))
         if not ptn_files:
             continue
         groups.append(

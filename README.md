@@ -84,6 +84,8 @@ The tool generates:
 - **`<beam_name>_report_layers.csv`** (optional): Per-beam report CSV with one row per analyzed layer when `export_report_csv: true`
 - **`debug_data_beam_<N>_layer_<M>.csv`** (optional): Debug CSV with interpolated and raw per-sample data when `save_debug_csv: true`
 
+Legacy gamma normalization sweep scripts, standalone gamma debug exporters, and their separate report-generator stacks are not part of the active repository workflow.
+
 ### Report Styles
 
 #### Summary Style (default)
