@@ -299,22 +299,25 @@ def calculate_point_gamma_for_layer(plan_layer, log_data, config):
     )
     diff_x = np.asarray(aligned["log_x"], dtype=float) - np.asarray(aligned["plan_x"], dtype=float)
     diff_y = np.asarray(aligned["log_y"], dtype=float) - np.asarray(aligned["plan_y"], dtype=float)
-    abs_diff_x = np.abs(diff_x)
-    abs_diff_y = np.abs(diff_y)
+    mask = analysis_masks["analysis_mask"]
+    stats_diff_x = diff_x[mask] if np.any(mask) else diff_x
+    stats_diff_y = diff_y[mask] if np.any(mask) else diff_y
+    abs_stats_diff_x = np.abs(stats_diff_x)
+    abs_stats_diff_y = np.abs(stats_diff_y)
     results.update(
         {
             "diff_x": diff_x,
             "diff_y": diff_y,
-            "mean_diff_x": float(np.mean(diff_x)) if diff_x.size else 0.0,
-            "mean_diff_y": float(np.mean(diff_y)) if diff_y.size else 0.0,
-            "std_diff_x": float(np.std(diff_x)) if diff_x.size else 0.0,
-            "std_diff_y": float(np.std(diff_y)) if diff_y.size else 0.0,
-            "rmse_x": float(np.sqrt(np.mean(diff_x**2))) if diff_x.size else 0.0,
-            "rmse_y": float(np.sqrt(np.mean(diff_y**2))) if diff_y.size else 0.0,
-            "max_abs_diff_x": float(np.max(abs_diff_x)) if abs_diff_x.size else 0.0,
-            "max_abs_diff_y": float(np.max(abs_diff_y)) if abs_diff_y.size else 0.0,
-            "p95_abs_diff_x": float(np.percentile(abs_diff_x, 95)) if abs_diff_x.size else 0.0,
-            "p95_abs_diff_y": float(np.percentile(abs_diff_y, 95)) if abs_diff_y.size else 0.0,
+            "mean_diff_x": float(np.mean(stats_diff_x)) if stats_diff_x.size else 0.0,
+            "mean_diff_y": float(np.mean(stats_diff_y)) if stats_diff_y.size else 0.0,
+            "std_diff_x": float(np.std(stats_diff_x)) if stats_diff_x.size else 0.0,
+            "std_diff_y": float(np.std(stats_diff_y)) if stats_diff_y.size else 0.0,
+            "rmse_x": float(np.sqrt(np.mean(stats_diff_x**2))) if stats_diff_x.size else 0.0,
+            "rmse_y": float(np.sqrt(np.mean(stats_diff_y**2))) if stats_diff_y.size else 0.0,
+            "max_abs_diff_x": float(np.max(abs_stats_diff_x)) if abs_stats_diff_x.size else 0.0,
+            "max_abs_diff_y": float(np.max(abs_stats_diff_y)) if abs_stats_diff_y.size else 0.0,
+            "p95_abs_diff_x": float(np.percentile(abs_stats_diff_x, 95)) if abs_stats_diff_x.size else 0.0,
+            "p95_abs_diff_y": float(np.percentile(abs_stats_diff_y, 95)) if abs_stats_diff_y.size else 0.0,
             "is_settling": analysis_masks["is_settling"],
             "settling_index": analysis_masks["settling_index"],
             "settling_samples_count": int(np.sum(analysis_masks["is_settling"])),
