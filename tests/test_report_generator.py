@@ -381,12 +381,36 @@ class TestReportGenerator(unittest.TestCase):
         )
 
         heatmap_ax = next(ax for ax in fig.axes if len(ax.images) == 1 and ax.get_ylabel() == "Layer")
-        header_ax = next(
+        group_header_ax = next(
             ax
             for ax in fig.axes
-            if ax is not heatmap_ax and any(text.get_text() == "X" for text in ax.texts)
+            if ax is not heatmap_ax
+            and abs(ax.get_position().x0 - heatmap_ax.get_position().x0) < 0.02
+            and ax.get_position().y0 >= heatmap_ax.get_position().y1 - 0.001
+            and any(
+                cell.get_text().get_text() == "X"
+                for table in ax.tables
+                for cell in table.get_celld().values()
+            )
         )
-        header_texts = [text.get_text() for text in header_ax.texts]
+        side_header_ax = next(
+            ax
+            for ax in fig.axes
+            if ax is not heatmap_ax
+            and ax.get_position().x0 > heatmap_ax.get_position().x1
+            and ax.get_position().y0 >= heatmap_ax.get_position().y1 - 0.001
+            and any(
+                cell.get_text().get_text() == "Gamma"
+                for table in ax.tables
+                for cell in table.get_celld().values()
+            )
+        )
+        header_texts = [
+            cell.get_text().get_text()
+            for ax in (group_header_ax, side_header_ax)
+            for table in ax.tables
+            for cell in table.get_celld().values()
+        ]
         side_ax = next(
             ax
             for ax in fig.axes
@@ -443,7 +467,9 @@ class TestReportGenerator(unittest.TestCase):
     def test_draw_layer_heatmap_renders_all_layers(self):
         fig = plt.figure(figsize=(6, 4))
         title_ax = fig.add_subplot(3, 1, 1)
-        header_ax = fig.add_subplot(2, 1, 1)
+        group_header_ax = fig.add_subplot(4, 1, 1)
+        metric_header_ax = fig.add_subplot(4, 1, 2)
+        side_header_ax = fig.add_subplot(4, 2, 2)
         ax = fig.add_subplot(2, 1, 2)
         heatmap_values = np.array([
             [0.1, 0.2, 0.3, 0.4],
@@ -463,7 +489,9 @@ class TestReportGenerator(unittest.TestCase):
         image, flag_image = _draw_layer_heatmap(
             fig,
             title_ax,
-            header_ax,
+            group_header_ax,
+            metric_header_ax,
+            side_header_ax,
             ax,
             heatmap_values,
             layer_labels,
@@ -478,19 +506,36 @@ class TestReportGenerator(unittest.TestCase):
         self.assertEqual("Layer", ax.get_ylabel())
         self.assertEqual(
             ["Mean", "Std", "Max", "Mean", "Std", "Max"],
-            [text.get_text() for text in header_ax.texts if text.get_text() in metric_labels],
+            [
+                cell.get_text().get_text()
+                for table in metric_header_ax.tables
+                for cell in table.get_celld().values()
+                if cell.get_text().get_text() in metric_labels
+            ],
         )
-        group_labels = [text.get_text() for text in header_ax.texts]
+        group_labels = [
+            cell.get_text().get_text()
+            for table in group_header_ax.tables
+            for cell in table.get_celld().values()
+        ]
         self.assertIn("X", group_labels)
         self.assertIn("Y", group_labels)
         self.assertEqual(1, group_labels.count("X"))
         self.assertEqual(1, group_labels.count("Y"))
+        side_labels = [
+            cell.get_text().get_text()
+            for table in side_header_ax.tables
+            for cell in table.get_celld().values()
+        ]
+        self.assertIn("Flag", side_labels)
         plt.close(fig)
 
     def test_draw_layer_heatmap_uses_prioritized_abbreviated_flag_column(self):
         fig = plt.figure(figsize=(6, 4))
         title_ax = fig.add_subplot(3, 1, 1)
-        header_ax = fig.add_subplot(2, 1, 1)
+        group_header_ax = fig.add_subplot(4, 1, 1)
+        metric_header_ax = fig.add_subplot(4, 1, 2)
+        side_header_ax = fig.add_subplot(4, 2, 2)
         ax = fig.add_subplot(2, 1, 2)
         heatmap_values = np.array([
             [0.1, 0.2, 0.3, 0.4],
@@ -508,7 +553,9 @@ class TestReportGenerator(unittest.TestCase):
         _, flag_image = _draw_layer_heatmap(
             fig,
             title_ax,
-            header_ax,
+            group_header_ax,
+            metric_header_ax,
+            side_header_ax,
             ax,
             heatmap_values,
             layer_labels,
@@ -520,8 +567,12 @@ class TestReportGenerator(unittest.TestCase):
         flag_ax = flag_image.axes
         rendered_chars = [text.get_text() for text in flag_ax.texts]
         self.assertEqual(["FAIL", "FB", "NS", "OV"], rendered_chars[:4])
+        self.assertTrue(any(
+            cell.get_text().get_text() == "Flag"
+            for table in side_header_ax.tables
+            for cell in table.get_celld().values()
+        ))
         self.assertNotIn("Flag", [tick.get_text() for tick in flag_ax.get_xticklabels()])
-        self.assertIn("Flag", [text.get_text() for text in header_ax.texts])
         legend_text = "\n".join(rendered_chars[4:])
         self.assertIn("FAIL = layer fail", legend_text)
         self.assertIn("FB = fallback to raw", legend_text)
@@ -558,19 +609,62 @@ class TestReportGenerator(unittest.TestCase):
 
         fig = _generate_summary_page("Beam 1", beam_data)
         heatmap_ax = next(ax for ax in fig.axes if len(ax.images) == 1 and ax.get_ylabel() == "Layer")
-        header_ax = next(
+        group_header_ax = next(
             ax for ax in fig.axes
-            if ax is not heatmap_ax and any(text.get_text() == "X" for text in ax.texts)
+            if ax is not heatmap_ax
+            and abs(ax.get_position().x0 - heatmap_ax.get_position().x0) < 0.02
+            and ax.get_position().y0 >= heatmap_ax.get_position().y1 - 0.001
+            and any(
+                cell.get_text().get_text() == "X"
+                for table in ax.tables
+                for cell in table.get_celld().values()
+            )
+        )
+        metric_header_ax = next(
+            ax for ax in fig.axes
+            if ax is not heatmap_ax
+            and abs(ax.get_position().x0 - heatmap_ax.get_position().x0) < 0.02
+            and ax.get_position().y0 >= heatmap_ax.get_position().y1 - 0.001
+            and any(
+                cell.get_text().get_text() == "Mean"
+                for table in ax.tables
+                for cell in table.get_celld().values()
+            )
+        )
+        side_header_ax = next(
+            ax for ax in fig.axes
+            if ax is not heatmap_ax
+            and ax.get_position().x0 > heatmap_ax.get_position().x1
+            and ax.get_position().y0 >= heatmap_ax.get_position().y1 - 0.001
+            and any(
+                cell.get_text().get_text() == "Flag"
+                for table in ax.tables
+                for cell in table.get_celld().values()
+            )
         )
 
         self.assertEqual(
             ["Mean", "Std", "Max", "Mean", "Std", "Max"],
-            [text.get_text() for text in header_ax.texts if text.get_text() in ["Mean", "Std", "Max"]],
+            [
+                cell.get_text().get_text()
+                for table in metric_header_ax.tables
+                for cell in table.get_celld().values()
+                if cell.get_text().get_text() in ["Mean", "Std", "Max"]
+            ],
         )
-        group_labels = [text.get_text() for text in header_ax.texts]
+        group_labels = [
+            cell.get_text().get_text()
+            for table in group_header_ax.tables
+            for cell in table.get_celld().values()
+        ]
         self.assertIn("X", group_labels)
         self.assertIn("Y", group_labels)
-        self.assertIn("Flag", group_labels)
+        side_labels = [
+            cell.get_text().get_text()
+            for table in side_header_ax.tables
+            for cell in table.get_celld().values()
+        ]
+        self.assertIn("Flag", side_labels)
         plt.close(fig)
 
     def test_generate_summary_page_orders_heatmap_columns_by_axis_group(self):
@@ -603,16 +697,31 @@ class TestReportGenerator(unittest.TestCase):
 
         fig = _generate_summary_page("Beam 1", beam_data)
         heatmap_ax = next(ax for ax in fig.axes if len(ax.images) == 1 and ax.get_ylabel() == "Layer")
-        header_ax = next(
+        group_header_ax = next(
             ax for ax in fig.axes
-            if ax is not heatmap_ax and any(text.get_text() == "X" for text in ax.texts)
+            if ax is not heatmap_ax
+            and abs(ax.get_position().x0 - heatmap_ax.get_position().x0) < 0.02
+            and ax.get_position().y0 >= heatmap_ax.get_position().y1 - 0.001
+            and any(
+                cell.get_text().get_text() == "X"
+                for table in ax.tables
+                for cell in table.get_celld().values()
+            )
         )
 
         self.assertFalse(any(text.get_text() == "X" for text in heatmap_ax.texts))
         self.assertFalse(any(text.get_text() == "Y" for text in heatmap_ax.texts))
-        self.assertTrue(any(text.get_text() == "X" for text in header_ax.texts))
-        self.assertTrue(any(text.get_text() == "Y" for text in header_ax.texts))
-        self.assertGreater(header_ax.get_position().y0, heatmap_ax.get_position().y1)
+        self.assertTrue(any(
+            cell.get_text().get_text() == "X"
+            for table in group_header_ax.tables
+            for cell in table.get_celld().values()
+        ))
+        self.assertTrue(any(
+            cell.get_text().get_text() == "Y"
+            for table in group_header_ax.tables
+            for cell in table.get_celld().values()
+        ))
+        self.assertGreater(group_header_ax.get_position().y0, heatmap_ax.get_position().y1)
         plt.close(fig)
 
     def test_generate_summary_page_compresses_heatmap_header_and_colorbar_internals(self):
@@ -620,26 +729,33 @@ class TestReportGenerator(unittest.TestCase):
 
         fig = _generate_summary_page("Beam 1", beam_data)
         heatmap_ax = next(ax for ax in fig.axes if len(ax.images) == 1 and ax.get_ylabel() == "Layer")
-        header_ax = next(
+        group_header_ax = next(
             ax for ax in fig.axes
-            if ax is not heatmap_ax and any(text.get_text() == "X" for text in ax.texts)
+            if ax is not heatmap_ax
+            and abs(ax.get_position().x0 - heatmap_ax.get_position().x0) < 0.02
+            and ax.get_position().y0 >= heatmap_ax.get_position().y1 - 0.001
+            and any(
+                cell.get_text().get_text() == "X"
+                for table in ax.tables
+                for cell in table.get_celld().values()
+            )
+        )
+        metric_header_ax = next(
+            ax for ax in fig.axes
+            if ax is not heatmap_ax
+            and abs(ax.get_position().x0 - heatmap_ax.get_position().x0) < 0.02
+            and ax.get_position().y0 >= heatmap_ax.get_position().y1 - 0.001
+            and any(
+                cell.get_text().get_text() == "Mean"
+                for table in ax.tables
+                for cell in table.get_celld().values()
+            )
         )
         colorbar_ax = next(ax for ax in fig.axes if ax.get_xlabel() == "Error severity (mm)")
 
-        metric_ys = [
-            text.get_position()[1]
-            for text in header_ax.texts
-            if text.get_text() in ["Mean", "Std", "Max"]
-        ]
-        group_ys = [
-            text.get_position()[1]
-            for text in header_ax.texts
-            if text.get_text() in ["X", "Y"]
-        ]
-
-        self.assertLess(colorbar_ax.get_position().height, header_ax.get_position().height / 2)
-        self.assertLess(max(group_ys) - max(metric_ys), 0.22)
-        self.assertLess(max(metric_ys), 0.56)
+        self.assertLess(colorbar_ax.get_position().height, metric_header_ax.get_position().height)
+        self.assertLess(group_header_ax.get_position().y0 - metric_header_ax.get_position().y1, 0.01)
+        self.assertLess(metric_header_ax.get_position().y0 - heatmap_ax.get_position().y1, 0.01)
         plt.close(fig)
 
     def test_generate_summary_page_tightens_header_to_heatmap_gap(self):
@@ -647,18 +763,19 @@ class TestReportGenerator(unittest.TestCase):
 
         fig = _generate_summary_page("Beam 1", beam_data)
         heatmap_ax = next(ax for ax in fig.axes if len(ax.images) == 1 and ax.get_ylabel() == "Layer")
-        header_ax = next(
+        metric_header_ax = next(
             ax for ax in fig.axes
-            if ax is not heatmap_ax and any(text.get_text() == "X" for text in ax.texts)
+            if ax is not heatmap_ax
+            and abs(ax.get_position().x0 - heatmap_ax.get_position().x0) < 0.02
+            and ax.get_position().y0 >= heatmap_ax.get_position().y1 - 0.001
+            and any(
+                cell.get_text().get_text() == "Mean"
+                for table in ax.tables
+                for cell in table.get_celld().values()
+            )
         )
 
-        metric_ys = [
-            text.get_position()[1]
-            for text in header_ax.texts
-            if text.get_text() in ["Mean", "Std", "Max"]
-        ]
-        gap = header_ax.get_position().y0 - heatmap_ax.get_position().y1
-        self.assertEqual([0.40], sorted(set(metric_ys)))
+        gap = metric_header_ax.get_position().y0 - heatmap_ax.get_position().y1
         self.assertLess(gap, 0.0005)
         plt.close(fig)
 
@@ -667,25 +784,31 @@ class TestReportGenerator(unittest.TestCase):
 
         fig = _generate_summary_page("Beam 1", beam_data)
         heatmap_ax = next(ax for ax in fig.axes if len(ax.images) == 1 and ax.get_ylabel() == "Layer")
-        header_ax = next(
+        group_header_ax = next(
             ax for ax in fig.axes
-            if ax is not heatmap_ax and any(text.get_text() == "X" for text in ax.texts)
+            if ax is not heatmap_ax
+            and abs(ax.get_position().x0 - heatmap_ax.get_position().x0) < 0.02
+            and ax.get_position().y0 >= heatmap_ax.get_position().y1 - 0.001
+            and any(
+                cell.get_text().get_text() == "X"
+                for table in ax.tables
+                for cell in table.get_celld().values()
+            )
+        )
+        metric_header_ax = next(
+            ax for ax in fig.axes
+            if ax is not heatmap_ax
+            and abs(ax.get_position().x0 - heatmap_ax.get_position().x0) < 0.02
+            and ax.get_position().y0 >= heatmap_ax.get_position().y1 - 0.001
+            and any(
+                cell.get_text().get_text() == "Mean"
+                for table in ax.tables
+                for cell in table.get_celld().values()
+            )
         )
         colorbar_ax = next(ax for ax in fig.axes if ax.get_xlabel() == "Error severity (mm)")
 
-        metric_ys = sorted({
-            text.get_position()[1]
-            for text in header_ax.texts
-            if text.get_text() in ["Mean", "Std", "Max"]
-        })
-        group_ys = sorted({
-            text.get_position()[1]
-            for text in header_ax.texts
-            if text.get_text() in ["X", "Y"]
-        })
-
-        self.assertEqual([0.40], metric_ys)
-        self.assertEqual([0.61], group_ys)
+        self.assertGreater(group_header_ax.get_position().y0, metric_header_ax.get_position().y0)
         self.assertLess(colorbar_ax.get_position().y1, heatmap_ax.get_position().y0 - 0.005)
         plt.close(fig)
 
@@ -701,9 +824,16 @@ class TestReportGenerator(unittest.TestCase):
 
         fig = _generate_summary_page("Beam 1", beam_data)
         heatmap_ax = next(ax for ax in fig.axes if len(ax.images) == 1 and ax.get_ylabel() == "Layer")
-        header_ax = next(
+        side_header_ax = next(
             ax for ax in fig.axes
-            if ax is not heatmap_ax and any(text.get_text() == "X" for text in ax.texts)
+            if ax is not heatmap_ax
+            and ax.get_position().x0 > heatmap_ax.get_position().x1
+            and ax.get_position().y0 >= heatmap_ax.get_position().y1 - 0.001
+            and any(
+                cell.get_text().get_text() == "Flag"
+                for table in ax.tables
+                for cell in table.get_celld().values()
+            )
         )
         flag_ax = next(
             ax for ax in fig.axes
@@ -718,7 +848,11 @@ class TestReportGenerator(unittest.TestCase):
         )
 
         legend_text = "\n".join(text.get_text() for text in legend_ax.texts if "=" in text.get_text())
-        self.assertIn("Flag", [text.get_text() for text in header_ax.texts])
+        self.assertTrue(any(
+            cell.get_text().get_text() == "Flag"
+            for table in side_header_ax.tables
+            for cell in table.get_celld().values()
+        ))
         self.assertNotIn("Flag", [tick.get_text() for tick in flag_ax.get_xticklabels()])
         self.assertIn("FAIL = layer fail", legend_text)
         self.assertIn("FB = fallback to raw", legend_text)

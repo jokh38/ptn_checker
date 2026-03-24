@@ -122,6 +122,21 @@ def _gamma_percent(value):
     return numeric * 100.0 if numeric <= 1.0 else numeric
 
 
+def _style_header_table(tbl, *, header_rows=None, fontsize=6.0):
+    tbl.auto_set_font_size(False)
+    tbl.set_fontsize(fontsize)
+    for (row_idx, _), cell in tbl.get_celld().items():
+        cell.PAD = 0.02
+        cell.set_linewidth(0.8)
+        cell.set_edgecolor("#34495e")
+        if header_rows and row_idx in header_rows:
+            cell.set_facecolor("#34495e")
+            cell.set_text_props(color="white", fontweight="bold", va="center")
+        else:
+            cell.set_facecolor("white")
+            cell.set_text_props(va="center")
+
+
 def _gamma_beam_verdict(pass_rate_percent):
     if pass_rate_percent >= 95.0:
         return "PASS", "#2ecc71"
@@ -250,6 +265,11 @@ def _draw_position_summary_table(
     global_p95_x,
     global_p95_y,
     similarity_str,
+    include_radial=False,
+    radial_mean=0,
+    radial_rmse=0,
+    radial_max=0,
+    radial_p95=0,
 ):
     thr_mean = THRESHOLDS["mean_diff_mm"]
     thr_std = THRESHOLDS["std_diff_mm"]
@@ -264,11 +284,24 @@ def _draw_position_summary_table(
         "P95 (mm)",
         "Similarity",
     ]
+    cell_text = [
+        ["X", f"{global_mean_x:+.3f}", f"{global_std_x:.3f}", f"{global_rmse_x:.3f}", f"{global_max_x:.3f}", f"{global_p95_x:.3f}", similarity_str],
+        ["Y", f"{global_mean_y:+.3f}", f"{global_std_y:.3f}", f"{global_rmse_y:.3f}", f"{global_max_y:.3f}", f"{global_p95_y:.3f}", ""],
+    ]
+    row_label_colors = [(1, "#3498db"), (2, "#e67e22")]
+    color_row_vals = [
+        (abs(global_mean_x), global_std_x, global_rmse_x, global_max_x, global_p95_x),
+        (abs(global_mean_y), global_std_y, global_rmse_y, global_max_y, global_p95_y),
+    ]
+    if include_radial:
+        cell_text.append(
+            ["Radial", f"{radial_mean:.3f}", "", f"{radial_rmse:.3f}", f"{radial_max:.3f}", f"{radial_p95:.3f}", ""]
+        )
+        row_label_colors.append((3, "#8e44ad"))
+        color_row_vals.append((radial_mean, 0, radial_rmse, radial_max, radial_p95))
+
     metrics_table = ax.table(
-        cellText=[
-            ["X", f"{global_mean_x:+.3f}", f"{global_std_x:.3f}", f"{global_rmse_x:.3f}", f"{global_max_x:.3f}", f"{global_p95_x:.3f}", similarity_str],
-            ["Y", f"{global_mean_y:+.3f}", f"{global_std_y:.3f}", f"{global_rmse_y:.3f}", f"{global_max_y:.3f}", f"{global_p95_y:.3f}", ""],
-        ],
+        cellText=cell_text,
         colLabels=col_labels,
         loc="center",
         cellLoc="center",
@@ -276,21 +309,18 @@ def _draw_position_summary_table(
     )
     metrics_table.auto_set_font_size(False)
     metrics_table.set_fontsize(6.5)
-    metrics_table.scale(1.0, 1.15)
+    metrics_table.scale(1.0, 1.18 if include_radial else 1.15)
     for idx in range(len(col_labels)):
         metrics_table[0, idx].set_facecolor("#34495e")
         metrics_table[0, idx].set_text_props(color="white", fontweight="bold", va="center")
-    for row_idx, color in ((1, "#3498db"), (2, "#e67e22")):
+    for row_idx, color in row_label_colors:
         metrics_table[row_idx, 0].set_facecolor(color)
         metrics_table[row_idx, 0].set_text_props(color="white", fontweight="bold", va="center")
     for (_, _), cell in metrics_table.get_celld().items():
         cell.set_text_props(va="center")
         cell.PAD = 0.02
 
-    for row_idx, row_vals in enumerate([
-        (abs(global_mean_x), global_std_x, global_rmse_x, global_max_x, global_p95_x),
-        (abs(global_mean_y), global_std_y, global_rmse_y, global_max_y, global_p95_y),
-    ], start=1):
+    for row_idx, row_vals in enumerate(color_row_vals, start=1):
         for col_idx, threshold in {1: thr_mean, 2: thr_std, 4: thr_max}.items():
             ratio = row_vals[col_idx - 1] / threshold if threshold > 0 else 0
             metrics_table[row_idx, col_idx].set_facecolor(
@@ -371,7 +401,9 @@ def _layer_flag_codes(flag_rows, num_layers):
 def _draw_layer_heatmap(
     fig,
     title_ax,
-    header_ax,
+    group_header_ax,
+    metric_header_ax,
+    side_header_ax,
     ax,
     heatmap_values,
     layer_labels,
@@ -391,24 +423,47 @@ def _draw_layer_heatmap(
     num_metrics, num_layers = heatmap_values.shape if heatmap_values.size else (0, 0)
 
     title_ax.axis("off")
-    title_ax.text(0.5, 0.5, "Layer Heatmap", ha="center", va="center", fontsize=9, fontweight="bold", transform=title_ax.transAxes)
-    header_ax.axis("off")
-    if num_metrics >= 6:
-        header_ax.set_xlim(-0.5, num_metrics - 0.5)
-        header_ax.set_ylim(0, 1)
-        for idx, label in enumerate(metric_labels):
-            header_ax.text(idx, 0.40, label, ha="center", va="center", fontsize=6)
-        header_ax.plot([-0.5, 2.5], [0.57, 0.57], color="#34495e", linewidth=0.8)
-        header_ax.plot([2.5, 5.5], [0.57, 0.57], color="#34495e", linewidth=0.8)
-        header_ax.text(1.0, 0.61, "X", ha="center", va="bottom", fontsize=6, fontweight="bold")
-        header_ax.text(4.0, 0.61, "Y", ha="center", va="bottom", fontsize=6, fontweight="bold")
-        if num_metrics >= 7:
-            header_ax.plot([5.5, num_metrics - 0.5], [0.57, 0.57], color="#34495e", linewidth=0.8)
-            header_ax.text(6.0, 0.61, "Gamma", ha="center", va="bottom", fontsize=6, fontweight="bold")
+    title_ax.text(0.5, 0.55, "Layer Heatmap", ha="center", va="center", fontsize=9, fontweight="bold", transform=title_ax.transAxes)
+    group_header_ax.axis("off")
+    metric_header_ax.axis("off")
+    side_header_ax.axis("off")
+    if num_metrics > 0:
+        metric_table = metric_header_ax.table(
+            cellText=[metric_labels],
+            cellLoc="center",
+            colWidths=[1.0 / num_metrics] * num_metrics,
+            bbox=[0.0, 0.0, 1.0, 1.0],
+        )
+        _style_header_table(metric_table, fontsize=6.0)
+
+        if num_metrics >= 6:
+            col_widths = [3.0 / num_metrics, 3.0 / num_metrics]
+            group_labels = ["X", "Y"]
+            if num_metrics >= 7:
+                group_labels.append("Gamma")
+                remaining = num_metrics - 6
+                col_widths.append(remaining / num_metrics)
+            group_table = group_header_ax.table(
+                cellText=[group_labels],
+                cellLoc="center",
+                colWidths=col_widths,
+                bbox=[0.0, 0.0, 1.0, 1.0],
+            )
+            _style_header_table(group_table, header_rows={0}, fontsize=6.0)
+
+    side_header = ""
     if side_values is not None:
-        header_ax.text(1.055, 0.50, side_label or "", ha="center", va="center", fontsize=6, transform=header_ax.transAxes, clip_on=False)
+        side_header = side_label or ""
     elif flag_rows:
-        header_ax.text(1.055, 0.50, "Flag", ha="center", va="center", fontsize=6, transform=header_ax.transAxes, clip_on=False)
+        side_header = "Flag"
+    if side_header:
+        side_table = side_header_ax.table(
+            cellText=[[side_header]],
+            cellLoc="center",
+            colWidths=[1.0],
+            bbox=[0.0, 0.0, 1.0, 1.0],
+        )
+        _style_header_table(side_table, header_rows={0}, fontsize=6.0)
 
     image = ax.imshow(
         heatmap_values.T,
@@ -421,6 +476,8 @@ def _draw_layer_heatmap(
     ax.set_yticks(np.arange(num_layers))
     ax.set_xticks(np.arange(num_metrics))
     ax.set_xticklabels([])
+    if num_metrics >= 6:
+        ax.axvline(x=2.5, color="white", linewidth=2.5, zorder=5)
     if num_layers > 25:
         tick_step = max(1, int(np.ceil(num_layers / 25)))
         tick_positions = np.arange(0, num_layers, tick_step)
@@ -557,6 +614,161 @@ def _collect_beam_metrics(layers_data, report_mode):
     return metrics, all_plan_pos, all_log_pos, pass_flags, layer_labels, passed_spots, total_spots
 
 
+def build_summary_skeleton(
+    *,
+    beam_name,
+    verdict_text,
+    verdict_color,
+    subtitle_line,
+    extra_subtitle=None,
+    extra_subtitle_bold=False,
+    has_top_summary=False,
+    top_summary_rows=0,
+    top_summary_bounds=(0.06, 0.94, 0.785, 0.9),
+    top_summary_hspace=0.3,
+    middle_width_ratios=(0.9, 1.3),
+    middle_bounds=(0.06, 0.97, 0.12, 0.78),
+    left_height_ratios=(0.04, 0.08, 0.76, 0.06, 0.04),
+    left_hspace=0.08,
+    right_height_ratios=(0.04, 0.03, 0.03, 0.785, 0.025, 0.04),
+    right_hspace=0.01,
+    bottom_width_ratios=(0.6, 1.0),
+    bottom_bounds=(0.06, 0.97, 0.03, 0.10),
+    bottom_wspace=0.10,
+):
+    """Build common page skeleton used by both summary page types.
+
+    Returns a dict of named axes:
+      fig, trend_title, trend, heatmap_title, heatmap_group_header,
+      heatmap_metric_header, heatmap_side_header,
+      heatmap, heatmap_flags, heatmap_cbar, heatmap_flag_legend,
+      bottom_left, bottom_right (or bottom if single-column),
+      top_summary_0..N (if has_top_summary).
+    """
+    fig = plt.figure(figsize=A4_FIGSIZE)
+
+    # -- Header --------------------------------------------------------
+    fig.text(0.50, 0.97, beam_name, ha="center", va="top", fontsize=16, fontweight="bold")
+    fig.text(
+        0.95, 0.97, verdict_text,
+        ha="right", va="top", fontsize=10, fontweight="bold", color="white",
+        bbox=dict(boxstyle="round,pad=0.3", facecolor=verdict_color, edgecolor="none"),
+    )
+    fig.text(0.50, 0.935, subtitle_line, ha="center", va="top", fontsize=8, color="#555555")
+    if extra_subtitle is not None:
+        kwargs = {"fontweight": "bold"} if extra_subtitle_bold else {}
+        fig.text(
+            0.50, 0.918, extra_subtitle,
+            ha="center", va="top", fontsize=7, color="#555555", **kwargs,
+        )
+
+    axes = {"fig": fig}
+
+    # -- Top summary tables (optional) ---------------------------------
+    if has_top_summary and top_summary_rows > 0:
+        ts_left, ts_right, ts_bottom, ts_top = top_summary_bounds
+        top_gs = fig.add_gridspec(
+            top_summary_rows, 1,
+            left=ts_left, right=ts_right, bottom=ts_bottom, top=ts_top,
+            hspace=top_summary_hspace,
+        )
+        for row_idx in range(top_summary_rows):
+            axes[f"top_summary_{row_idx}"] = fig.add_subplot(top_gs[row_idx, 0])
+
+    # -- Middle section ------------------------------------------------
+    m_left, m_right, m_bottom, m_top = middle_bounds
+    middle_gs = fig.add_gridspec(
+        1, 2, left=m_left, right=m_right, bottom=m_bottom, top=m_top,
+        wspace=0.16, width_ratios=list(middle_width_ratios),
+    )
+
+    # Left panel (trend)
+    left_gs = middle_gs[0, 0].subgridspec(
+        5, 1, height_ratios=list(left_height_ratios), hspace=left_hspace,
+    )
+    ax_trend_title = fig.add_subplot(left_gs[0, 0])
+    ax_trend_title.axis("off")
+    ax_trend_title.text(
+        0.5, 0.3, "Layer Trend", ha="center", va="center",
+        fontsize=9, fontweight="bold", transform=ax_trend_title.transAxes,
+    )
+    ax_trend = fig.add_subplot(left_gs[1:, 0])
+    axes["trend_title"] = ax_trend_title
+    axes["trend"] = ax_trend
+
+    # Right panel (heatmap)
+    right_gs = middle_gs[0, 1].subgridspec(
+        6, 2,
+        height_ratios=list(right_height_ratios),
+        width_ratios=[0.90, 0.10],
+        hspace=right_hspace,
+        wspace=0.08,
+    )
+    ax_heatmap_title = fig.add_subplot(right_gs[0, :])
+    ax_heatmap_group_header = fig.add_subplot(right_gs[1, 0])
+    ax_heatmap_metric_header = fig.add_subplot(right_gs[2, 0])
+    ax_heatmap_side_header = fig.add_subplot(right_gs[1:3, 1])
+    ax_heatmap = fig.add_subplot(right_gs[3, 0])
+    ax_heatmap_flags = fig.add_subplot(right_gs[3, 1])
+    ax_heatmap_cbar = fig.add_subplot(right_gs[4, :])
+    ax_heatmap_flag_legend = fig.add_subplot(right_gs[5, :])
+
+    group_header_pos = ax_heatmap_group_header.get_position()
+    metric_header_pos = ax_heatmap_metric_header.get_position()
+    tightened_metric_top = group_header_pos.y0 - 0.0002
+    if tightened_metric_top > metric_header_pos.y0:
+        ax_heatmap_metric_header.set_position([
+            metric_header_pos.x0,
+            metric_header_pos.y0,
+            metric_header_pos.width,
+            tightened_metric_top - metric_header_pos.y0,
+        ])
+
+    # Nudge: tighten header-to-heatmap gap
+    heatmap_pos = ax_heatmap.get_position()
+    header_pos = ax_heatmap_metric_header.get_position()
+    tightened_heatmap_top = header_pos.y0 - 0.0002
+    if tightened_heatmap_top > heatmap_pos.y1:
+        ax_heatmap.set_position([
+            heatmap_pos.x0, heatmap_pos.y0,
+            heatmap_pos.width, tightened_heatmap_top - heatmap_pos.y0,
+        ])
+        flag_pos = ax_heatmap_flags.get_position()
+        ax_heatmap_flags.set_position([
+            flag_pos.x0, flag_pos.y0,
+            flag_pos.width, tightened_heatmap_top - flag_pos.y0,
+        ])
+    for axis in (ax_heatmap_cbar, ax_heatmap_flag_legend):
+        pos = axis.get_position()
+        axis.set_position([pos.x0, pos.y0 - 0.006, pos.width, pos.height])
+
+    axes["heatmap_title"] = ax_heatmap_title
+    axes["heatmap_group_header"] = ax_heatmap_group_header
+    axes["heatmap_metric_header"] = ax_heatmap_metric_header
+    axes["heatmap_side_header"] = ax_heatmap_side_header
+    axes["heatmap"] = ax_heatmap
+    axes["heatmap_flags"] = ax_heatmap_flags
+    axes["heatmap_cbar"] = ax_heatmap_cbar
+    axes["heatmap_flag_legend"] = ax_heatmap_flag_legend
+
+    # -- Bottom section ------------------------------------------------
+    b_left, b_right, b_bottom, b_top = bottom_bounds
+    if bottom_width_ratios is not None:
+        bottom_gs = fig.add_gridspec(
+            1, 2, left=b_left, right=b_right, bottom=b_bottom, top=b_top,
+            wspace=bottom_wspace, width_ratios=list(bottom_width_ratios),
+        )
+        axes["bottom_left"] = fig.add_subplot(bottom_gs[0, 0])
+        axes["bottom_right"] = fig.add_subplot(bottom_gs[0, 1])
+    else:
+        bottom_gs = fig.add_gridspec(
+            1, 1, left=b_left, right=b_right, bottom=b_bottom, top=b_top,
+        )
+        axes["bottom"] = fig.add_subplot(bottom_gs[0, 0])
+
+    return axes
+
+
 def _generate_summary_page(
     beam_name,
     beam_data,
@@ -602,22 +814,6 @@ def _generate_summary_page(
     global_p95_x = np.mean(p95_x_all) if p95_x_all else 0
     global_p95_y = np.mean(p95_y_all) if p95_y_all else 0
 
-    fig = plt.figure(figsize=A4_FIGSIZE)
-    fig.text(0.50, 0.97, beam_name, ha="center", va="top", fontsize=16, fontweight="bold")
-    fig.text(
-        0.95, 0.97,
-        f"{verdict} {num_pass}/{total_spots} ({pass_rate:.0f}%)",
-        ha="right", va="top", fontsize=10, fontweight="bold", color="white",
-        bbox=dict(boxstyle="round,pad=0.3", facecolor=pass_color, edgecolor="none"),
-    )
-    fig.text(
-        0.50, 0.935,
-        f"Patient ID: {patient_id}    |    Name: {patient_name}    |    Date: {_date.today().isoformat()}    |    Layers: {num_layers}",
-        ha="center", va="top", fontsize=8, color="#555555",
-    )
-    if report_mode != "raw":
-        fig.text(0.50, 0.918, f"Zero-dose filter active: {report_mode} metrics shown", ha="center", va="top", fontsize=7, color="#555555")
-
     radial_means = np.sqrt(np.array(mean_x_all) ** 2 + np.array(mean_y_all) ** 2)
     radial_per_layer = np.sqrt(np.array(rmse_x_all) ** 2 + np.array(rmse_y_all) ** 2)
     global_radial_mean = float(np.mean(radial_means)) if len(radial_means) else 0
@@ -625,69 +821,71 @@ def _generate_summary_page(
     global_radial_p95 = float(np.percentile(radial_per_layer, 95)) if len(radial_per_layer) else 0
     global_radial_rmse = float(np.mean(radial_per_layer)) if len(radial_per_layer) else 0
 
-    thr_mean = THRESHOLDS["mean_diff_mm"]
-    thr_std = THRESHOLDS["std_diff_mm"]
-    thr_max = THRESHOLDS["max_abs_diff_mm"]
-    ax_metrics = fig.add_axes([0.06, 0.79, 0.88, 0.10])
-    ax_metrics.axis("off")
-    col_labels = ["", f"Mean (\u2264{thr_mean})", f"Std (\u2264{thr_std})", "RMSE (mm)", f"Max (\u2264{thr_max})", "P95 (mm)", "Similarity"]
-    metrics_table = ax_metrics.table(
-        cellText=[
-            ["X", f"{global_mean_x:+.3f}", f"{global_std_x:.3f}", f"{global_rmse_x:.3f}", f"{global_max_x:.3f}", f"{global_p95_x:.3f}", similarity_str],
-            ["Y", f"{global_mean_y:+.3f}", f"{global_std_y:.3f}", f"{global_rmse_y:.3f}", f"{global_max_y:.3f}", f"{global_p95_y:.3f}", ""],
-            ["Radial", f"{global_radial_mean:.3f}", "", f"{global_radial_rmse:.3f}", f"{global_radial_max:.3f}", f"{global_radial_p95:.3f}", ""],
-        ],
-        colLabels=col_labels,
-        loc="center",
-        cellLoc="center",
-        colWidths=[0.12, 0.15, 0.15, 0.14, 0.14, 0.14, 0.16],
+    extra_subtitle = (
+        f"Zero-dose filter active: {report_mode} metrics shown"
+        if report_mode != "raw"
+        else None
     )
-    metrics_table.auto_set_font_size(False)
-    metrics_table.set_fontsize(6.5)
-    metrics_table.scale(1.0, 1.18)
-    for idx in range(len(col_labels)):
-        metrics_table[0, idx].set_facecolor("#34495e")
-        metrics_table[0, idx].set_text_props(color="white", fontweight="bold", va="center")
-    for row_idx, color in ((1, "#3498db"), (2, "#e67e22"), (3, "#8e44ad")):
-        metrics_table[row_idx, 0].set_facecolor(color)
-        metrics_table[row_idx, 0].set_text_props(color="white", fontweight="bold", va="center")
-    for (_, _), cell in metrics_table.get_celld().items():
-        cell.set_text_props(va="center")
-        cell.PAD = 0.02
+    axes = build_summary_skeleton(
+        beam_name=beam_name,
+        verdict_text=f"{verdict} {num_pass}/{total_spots} ({pass_rate:.0f}%)",
+        verdict_color=pass_color,
+        subtitle_line=f"Patient ID: {patient_id}    |    Name: {patient_name}    |    Date: {_date.today().isoformat()}    |    Layers: {num_layers}",
+        extra_subtitle=extra_subtitle,
+        has_top_summary=True,
+        top_summary_rows=1,
+        top_summary_bounds=(0.06, 0.94, 0.79, 0.89),
+        middle_width_ratios=(0.9, 1.3),
+        middle_bounds=(0.06, 0.97, 0.12, 0.78),
+        left_height_ratios=(0.04, 0.08, 0.76, 0.06, 0.04),
+        left_hspace=0.08,
+        right_height_ratios=(0.04, 0.03, 0.03, 0.785, 0.025, 0.04),
+        right_hspace=0.01,
+        bottom_width_ratios=(0.6, 1.0),
+        bottom_bounds=(0.06, 0.97, 0.03, 0.10),
+        bottom_wspace=0.10,
+    )
+    fig = axes["fig"]
 
-    for row_idx, row_vals in enumerate([
-        (abs(global_mean_x), global_std_x, global_rmse_x, global_max_x, global_p95_x),
-        (abs(global_mean_y), global_std_y, global_rmse_y, global_max_y, global_p95_y),
-        (global_radial_mean, 0, global_radial_rmse, global_radial_max, global_radial_p95),
-    ], start=1):
-        for col_idx, threshold in {1: thr_mean, 2: thr_std, 4: thr_max}.items():
-            ratio = row_vals[col_idx - 1] / threshold if threshold > 0 else 0
-            metrics_table[row_idx, col_idx].set_facecolor(
-                "#d5f5e3" if ratio <= 0.5 else "#fdebd0" if ratio <= 1.0 else "#fadbd8"
-            )
+    # Top summary: position metrics with radial row
+    _draw_position_summary_table(
+        axes["top_summary_0"],
+        global_mean_x=global_mean_x,
+        global_mean_y=global_mean_y,
+        global_std_x=global_std_x,
+        global_std_y=global_std_y,
+        global_rmse_x=global_rmse_x,
+        global_rmse_y=global_rmse_y,
+        global_max_x=global_max_x,
+        global_max_y=global_max_y,
+        global_p95_x=global_p95_x,
+        global_p95_y=global_p95_y,
+        similarity_str=similarity_str,
+        include_radial=True,
+        radial_mean=global_radial_mean,
+        radial_rmse=global_radial_rmse,
+        radial_max=global_radial_max,
+        radial_p95=global_radial_p95,
+    )
 
-    middle_gs = fig.add_gridspec(1, 2, left=0.06, right=0.97, bottom=0.12, top=0.78, wspace=0.16, width_ratios=[0.9, 1.3])
-    left_gs = middle_gs[0, 0].subgridspec(5, 1, height_ratios=[0.04, 0.08, 0.76, 0.06, 0.04], hspace=0.08)
-    ax_trend_title = fig.add_subplot(left_gs[0, 0])
-    ax_trend_title.axis("off")
-    ax_trend_title.text(0.5, 0.5, "Layer Trend", ha="center", va="center", fontsize=9, fontweight="bold", transform=ax_trend_title.transAxes)
-    ax_err = fig.add_subplot(left_gs[1:, 0])
+    # Left panel: layer trend plot
+    ax_err = axes["trend"]
     layer_idx = np.arange(1, num_layers + 1)
     worst_axis_error = np.maximum(np.array(max_x_all), np.array(max_y_all))
     y_x = layer_idx - 0.16
     y_y = layer_idx + 0.16
-    ax_err.errorbar(mean_x_all, y_x, xerr=std_x_all, fmt="o", markersize=3.5, linewidth=1.0, capsize=2.5, color="#1f77b4", ecolor="#1f77b4", label="X mean ± std", zorder=3)
-    ax_err.errorbar(mean_y_all, y_y, xerr=std_y_all, fmt="s", markersize=3.2, linewidth=1.0, capsize=2.5, color="#ff7f0e", ecolor="#ff7f0e", label="Y mean ± std", zorder=3)
+    ax_err.errorbar(mean_x_all, y_x, xerr=std_x_all, fmt="o", markersize=3.5, linewidth=1.0, capsize=2.5, color="#1f77b4", ecolor="#1f77b4", label="X mean \u00b1 std", zorder=3)
+    ax_err.errorbar(mean_y_all, y_y, xerr=std_y_all, fmt="s", markersize=3.2, linewidth=1.0, capsize=2.5, color="#ff7f0e", ecolor="#ff7f0e", label="Y mean \u00b1 std", zorder=3)
     ax_err.scatter(mean_x_all, y_x, c=["#2ecc71" if passed else "#e74c3c" for passed in pass_flags], s=14, zorder=4, edgecolors="white", linewidths=0.3)
     ax_err.scatter(mean_y_all, y_y, c=["#2ecc71" if passed else "#e74c3c" for passed in pass_flags], s=14, zorder=4, edgecolors="white", linewidths=0.3, marker="s")
-    for x_pos, style, color, label in (
-        (0, "-", "#7f8c8d", None),
-        (THRESHOLDS["mean_diff_mm"], "--", "#95a5a6", None),
-        (-THRESHOLDS["mean_diff_mm"], "--", "#95a5a6", f"±{THRESHOLDS['mean_diff_mm']} mm mean target"),
-        (THRESHOLDS["max_abs_diff_mm"], ":", "#bdc3c7", None),
-        (-THRESHOLDS["max_abs_diff_mm"], ":", "#bdc3c7", f"±{THRESHOLDS['max_abs_diff_mm']} mm max limit"),
+    ax_err.axvspan(-THRESHOLDS["mean_diff_mm"], THRESHOLDS["mean_diff_mm"],
+                   alpha=0.12, color="#2ecc71", zorder=1, label=f"\u00b1{THRESHOLDS['mean_diff_mm']} mm mean target")
+    for x_pos, style, color in (
+        (0, "-", "#7f8c8d"),
+        (THRESHOLDS["mean_diff_mm"], "--", "#95a5a6"),
+        (-THRESHOLDS["mean_diff_mm"], "--", "#95a5a6"),
     ):
-        ax_err.axvline(x_pos, linestyle=style, linewidth=0.8 if style != "-" else 0.9, color=color, alpha=0.9 if style != "--" else 0.8, label=label)
+        ax_err.axvline(x_pos, linestyle=style, linewidth=0.8 if style != "-" else 0.9, color=color, alpha=0.8)
     ax_err.set_xlabel("Deviation (mm)", fontsize=7)
     ax_err.set_ylabel("Layer", fontsize=7)
     ax_err.set_yticks(layer_idx)
@@ -697,25 +895,15 @@ def _generate_summary_page(
     ax_err.grid(True, alpha=0.3, axis="x")
     if num_layers > 25:
         ax_err.tick_params(axis="y", labelsize=4)
+    all_devs = np.concatenate([np.array(mean_x_all) - np.array(std_x_all), np.array(mean_x_all) + np.array(std_x_all),
+                               np.array(mean_y_all) - np.array(std_y_all), np.array(mean_y_all) + np.array(std_y_all)])
+    dev_min = min(float(all_devs.min()), -THRESHOLDS["mean_diff_mm"])
+    dev_max = max(float(all_devs.max()), THRESHOLDS["mean_diff_mm"])
+    margin = max(0.2, (dev_max - dev_min) * 0.1)
+    ax_err.set_xlim(dev_min - margin, dev_max + margin)
     ax_err.legend(fontsize=5, loc="upper left")
 
-    right_gs = middle_gs[0, 1].subgridspec(5, 2, height_ratios=[0.04, 0.06, 0.815, 0.025, 0.04], width_ratios=[0.90, 0.10], hspace=0.01, wspace=0.08)
-    ax_heatmap_title = fig.add_subplot(right_gs[0, :])
-    ax_heatmap_header = fig.add_subplot(right_gs[1, 0])
-    ax_heatmap = fig.add_subplot(right_gs[2, 0])
-    ax_heatmap_flags = fig.add_subplot(right_gs[2, 1])
-    ax_heatmap_cbar = fig.add_subplot(right_gs[3, :])
-    ax_heatmap_flag_legend = fig.add_subplot(right_gs[4, :])
-    heatmap_pos = ax_heatmap.get_position()
-    header_pos = ax_heatmap_header.get_position()
-    tightened_heatmap_top = header_pos.y0 - 0.0002
-    if tightened_heatmap_top > heatmap_pos.y1:
-        ax_heatmap.set_position([heatmap_pos.x0, heatmap_pos.y0, heatmap_pos.width, tightened_heatmap_top - heatmap_pos.y0])
-        flag_pos = ax_heatmap_flags.get_position()
-        ax_heatmap_flags.set_position([flag_pos.x0, flag_pos.y0, flag_pos.width, tightened_heatmap_top - flag_pos.y0])
-    for axis in (ax_heatmap_cbar, ax_heatmap_flag_legend):
-        pos = axis.get_position()
-        axis.set_position([pos.x0, pos.y0 - 0.006, pos.width, pos.height])
+    # Right panel: layer heatmap
     fallback_flags = []
     never_settled_flags = []
     low_overlap_flags = []
@@ -736,23 +924,25 @@ def _generate_summary_page(
         flag_rows["Fail"] = [0 if passed else 1 for passed in pass_flags]
     _draw_layer_heatmap(
         fig,
-        ax_heatmap_title,
-        ax_heatmap_header,
-        ax_heatmap,
+        axes["heatmap_title"],
+        axes["heatmap_group_header"],
+        axes["heatmap_metric_header"],
+        axes["heatmap_side_header"],
+        axes["heatmap"],
         np.array([np.abs(mean_x_all), std_x_all, max_x_all, np.abs(mean_y_all), std_y_all, max_y_all]),
         layer_labels,
         ["Mean", "Std", "Max", "Mean", "Std", "Max"],
         flag_rows=flag_rows if flag_rows else None,
-        flag_ax=ax_heatmap_flags,
-        flag_legend_ax=ax_heatmap_flag_legend,
-        cbar_ax=ax_heatmap_cbar,
+        flag_ax=axes["heatmap_flags"],
+        flag_legend_ax=axes["heatmap_flag_legend"],
+        cbar_ax=axes["heatmap_cbar"],
     )
 
-    bottom_gs = fig.add_gridspec(1, 2, left=0.06, right=0.97, bottom=0.03, top=0.10, wspace=0.10, width_ratios=[0.6, 1.0])
-    ax_filter = fig.add_subplot(bottom_gs[0, 0])
+    # Bottom panels
+    ax_filter = axes["bottom_left"]
     ax_filter.axis("off")
     _draw_analysis_info_panel(ax_filter, layers_data, report_mode, analysis_config)
-    ax_worst = fig.add_subplot(bottom_gs[0, 1])
+    ax_worst = axes["bottom_right"]
     ax_worst.axis("off")
     worst_order = np.argsort(worst_axis_error)[::-1][: min(5, num_layers)]
     if len(worst_order) > 0:
@@ -813,43 +1003,31 @@ def _generate_point_gamma_summary_page(
     global_p95_x = np.mean(p95_x_all) if p95_x_all else 0
     global_p95_y = np.mean(p95_y_all) if p95_y_all else 0
 
-    fig = plt.figure(figsize=A4_FIGSIZE)
-    fig.text(0.50, 0.97, beam_name, ha="center", va="top", fontsize=16, fontweight="bold")
-    fig.text(
-        0.95,
-        0.97,
-        f"{verdict} {gamma_metrics['beam_pass_rate']:.0f}%",
-        ha="right",
-        va="top",
-        fontsize=10,
-        fontweight="bold",
-        color="white",
-        bbox=dict(boxstyle="round,pad=0.3", facecolor=pass_color, edgecolor="none"),
+    axes = build_summary_skeleton(
+        beam_name=beam_name,
+        verdict_text=f"{verdict} {gamma_metrics['beam_pass_rate']:.0f}%",
+        verdict_color=pass_color,
+        subtitle_line=f"Patient ID: {patient_id}    |    Name: {patient_name}    |    Date: {_date.today().isoformat()}    |    Layers: {num_layers}",
+        extra_subtitle="Point Gamma Summary",
+        extra_subtitle_bold=True,
+        has_top_summary=True,
+        top_summary_rows=2,
+        top_summary_bounds=(0.06, 0.94, 0.785, 0.9),
+        top_summary_hspace=0.3,
+        middle_width_ratios=(1.0, 1.2),
+        middle_bounds=(0.06, 0.97, 0.13, 0.79),
+        left_height_ratios=(0.04, 0.01, 0.85, 0.06, 0.04),
+        left_hspace=0.03,
+        right_height_ratios=(0.06, 0.02, 0.03, 0.825, 0.025, 0.04),
+        right_hspace=0.005,
+        bottom_width_ratios=None,
+        bottom_bounds=(0.06, 0.97, 0.015, 0.09),
     )
-    fig.text(
-        0.50,
-        0.935,
-        f"Patient ID: {patient_id}    |    Name: {patient_name}    |    Date: {_date.today().isoformat()}    |    Layers: {num_layers}",
-        ha="center",
-        va="top",
-        fontsize=8,
-        color="#555555",
-    )
-    fig.text(
-        0.50,
-        0.918,
-        "Point Gamma Summary",
-        ha="center",
-        va="top",
-        fontsize=7,
-        fontweight="bold",
-        color="#555555",
-    )
+    fig = axes["fig"]
 
-    top_gs = fig.add_gridspec(2, 1, left=0.06, right=0.94, bottom=0.785, top=0.9, hspace=0.3)
-    ax_position_summary = fig.add_subplot(top_gs[0, 0])
+    # Top summary tables
     _draw_position_summary_table(
-        ax_position_summary,
+        axes["top_summary_0"],
         global_mean_x=global_mean_x,
         global_mean_y=global_mean_y,
         global_std_x=global_std_x,
@@ -862,9 +1040,8 @@ def _generate_point_gamma_summary_page(
         global_p95_y=global_p95_y,
         similarity_str=similarity_str,
     )
-    ax_gamma_summary = fig.add_subplot(top_gs[1, 0])
     _draw_gamma_summary_table(
-        ax_gamma_summary,
+        axes["top_summary_1"],
         num_layers=num_layers,
         beam_pass_rate=gamma_metrics["beam_pass_rate"],
         beam_gamma_mean=gamma_metrics["beam_gamma_mean"],
@@ -874,27 +1051,23 @@ def _generate_point_gamma_summary_page(
         beam_count_error_mean=gamma_metrics["beam_count_error_mean"],
     )
 
-    middle_gs = fig.add_gridspec(1, 2, left=0.06, right=0.97, bottom=0.13, top=0.79, wspace=0.16, width_ratios=[1.0, 1.2])
-    left_gs = middle_gs[0, 0].subgridspec(5, 1, height_ratios=[0.04, 0.01, 0.85, 0.06, 0.04], hspace=0.03)
-    ax_trend_title = fig.add_subplot(left_gs[0, 0])
-    ax_trend_title.axis("off")
-    ax_trend_title.text(0.5, 0.5, "Layer Trend", ha="center", va="center", fontsize=9, fontweight="bold", transform=ax_trend_title.transAxes)
-    ax_err = fig.add_subplot(left_gs[1:, 0])
+    # Left panel: layer trend plot
+    ax_err = axes["trend"]
     layer_idx = np.arange(1, num_layers + 1)
     y_x = layer_idx - 0.16
     y_y = layer_idx + 0.16
-    ax_err.errorbar(mean_x_all, y_x, xerr=std_x_all, fmt="o", markersize=3.5, linewidth=1.0, capsize=2.5, color="#1f77b4", ecolor="#1f77b4", label="X mean ± std", zorder=3)
-    ax_err.errorbar(mean_y_all, y_y, xerr=std_y_all, fmt="s", markersize=3.2, linewidth=1.0, capsize=2.5, color="#ff7f0e", ecolor="#ff7f0e", label="Y mean ± std", zorder=3)
+    ax_err.errorbar(mean_x_all, y_x, xerr=std_x_all, fmt="o", markersize=3.5, linewidth=1.0, capsize=2.5, color="#1f77b4", ecolor="#1f77b4", label="X mean \u00b1 std", zorder=3)
+    ax_err.errorbar(mean_y_all, y_y, xerr=std_y_all, fmt="s", markersize=3.2, linewidth=1.0, capsize=2.5, color="#ff7f0e", ecolor="#ff7f0e", label="Y mean \u00b1 std", zorder=3)
     ax_err.scatter(mean_x_all, y_x, c=["#2ecc71" if passed else "#e74c3c" for passed in gamma_metrics["pass_flags"]], s=14, zorder=4, edgecolors="white", linewidths=0.3)
     ax_err.scatter(mean_y_all, y_y, c=["#2ecc71" if passed else "#e74c3c" for passed in gamma_metrics["pass_flags"]], s=14, zorder=4, edgecolors="white", linewidths=0.3, marker="s")
-    for x_pos, style, color, label in (
-        (0, "-", "#7f8c8d", None),
-        (THRESHOLDS["mean_diff_mm"], "--", "#95a5a6", None),
-        (-THRESHOLDS["mean_diff_mm"], "--", "#95a5a6", f"±{THRESHOLDS['mean_diff_mm']} mm mean target"),
-        (THRESHOLDS["max_abs_diff_mm"], ":", "#bdc3c7", None),
-        (-THRESHOLDS["max_abs_diff_mm"], ":", "#bdc3c7", f"±{THRESHOLDS['max_abs_diff_mm']} mm max limit"),
+    ax_err.axvspan(-THRESHOLDS["mean_diff_mm"], THRESHOLDS["mean_diff_mm"],
+                   alpha=0.12, color="#2ecc71", zorder=1, label=f"\u00b1{THRESHOLDS['mean_diff_mm']} mm mean target")
+    for x_pos, style, color in (
+        (0, "-", "#7f8c8d"),
+        (THRESHOLDS["mean_diff_mm"], "--", "#95a5a6"),
+        (-THRESHOLDS["mean_diff_mm"], "--", "#95a5a6"),
     ):
-        ax_err.axvline(x_pos, linestyle=style, linewidth=0.8 if style != "-" else 0.9, color=color, alpha=0.9 if style != "--" else 0.8, label=label)
+        ax_err.axvline(x_pos, linestyle=style, linewidth=0.8 if style != "-" else 0.9, color=color, alpha=0.8)
     ax_err.set_xlabel("Deviation (mm)", fontsize=7)
     ax_err.set_ylabel("Layer", fontsize=7)
     ax_err.set_yticks(layer_idx)
@@ -904,47 +1077,38 @@ def _generate_point_gamma_summary_page(
     ax_err.grid(True, alpha=0.3, axis="x")
     if num_layers > 25:
         ax_err.tick_params(axis="y", labelsize=4)
+    all_devs = np.concatenate([np.array(mean_x_all) - np.array(std_x_all), np.array(mean_x_all) + np.array(std_x_all),
+                               np.array(mean_y_all) - np.array(std_y_all), np.array(mean_y_all) + np.array(std_y_all)])
+    dev_min = min(float(all_devs.min()), -THRESHOLDS["mean_diff_mm"])
+    dev_max = max(float(all_devs.max()), THRESHOLDS["mean_diff_mm"])
+    margin = max(0.2, (dev_max - dev_min) * 0.1)
+    ax_err.set_xlim(dev_min - margin, dev_max + margin)
     ax_err.legend(fontsize=5, loc="upper left")
 
-    right_gs = middle_gs[0, 1].subgridspec(5, 2, height_ratios=[0.06, 0.02, 0.855, 0.025, 0.04], width_ratios=[0.90, 0.10], hspace=0.005, wspace=0.08)
-    ax_heatmap_title = fig.add_subplot(right_gs[0, :])
-    ax_heatmap_header = fig.add_subplot(right_gs[1, 0])
-    ax_heatmap = fig.add_subplot(right_gs[2, 0])
-    ax_heatmap_flags = fig.add_subplot(right_gs[2, 1])
-    ax_heatmap_cbar = fig.add_subplot(right_gs[3, :])
-    ax_heatmap_flag_legend = fig.add_subplot(right_gs[4, :])
-    heatmap_pos = ax_heatmap.get_position()
-    header_pos = ax_heatmap_header.get_position()
-    tightened_heatmap_top = header_pos.y0 - 0.0002
-    if tightened_heatmap_top > heatmap_pos.y1:
-        ax_heatmap.set_position([heatmap_pos.x0, heatmap_pos.y0, heatmap_pos.width, tightened_heatmap_top - heatmap_pos.y0])
-        flag_pos = ax_heatmap_flags.get_position()
-        ax_heatmap_flags.set_position([flag_pos.x0, flag_pos.y0, flag_pos.width, tightened_heatmap_top - flag_pos.y0])
-    for axis in (ax_heatmap_cbar, ax_heatmap_flag_legend):
-        pos = axis.get_position()
-        axis.set_position([pos.x0, pos.y0 - 0.006, pos.width, pos.height])
-
+    # Right panel: layer heatmap with gamma side column
     _draw_layer_heatmap(
         fig,
-        ax_heatmap_title,
-        ax_heatmap_header,
-        ax_heatmap,
+        axes["heatmap_title"],
+        axes["heatmap_group_header"],
+        axes["heatmap_metric_header"],
+        axes["heatmap_side_header"],
+        axes["heatmap"],
         np.array([np.abs(mean_x_all), std_x_all, max_x_all, np.abs(mean_y_all), std_y_all, max_y_all]),
         layer_labels,
         ["Mean", "Std", "Max", "Mean", "Std", "Max"],
-        flag_ax=ax_heatmap_flags,
-        flag_legend_ax=ax_heatmap_flag_legend,
-        cbar_ax=ax_heatmap_cbar,
+        flag_ax=axes["heatmap_flags"],
+        flag_legend_ax=axes["heatmap_flag_legend"],
+        cbar_ax=axes["heatmap_cbar"],
         side_values=gamma_metrics["layer_pass_rates"],
         side_label="Gamma",
         side_cmap=plt.cm.RdYlGn,
         side_vmin=0,
         side_vmax=100,
-        side_text_labels=[f"{value:.0f}" for value in gamma_metrics["layer_pass_rates"]],
+        side_text_labels=[f"{value:.0f}%" for value in gamma_metrics["layer_pass_rates"]],
     )
 
-    bottom_gs = fig.add_gridspec(1, 1, left=0.06, right=0.97, bottom=0.015, top=0.09)
-    ax_filter = fig.add_subplot(bottom_gs[0, 0])
+    # Bottom panel
+    ax_filter = axes["bottom"]
     ax_filter.axis("off")
     _draw_point_gamma_analysis_info_panel(
         ax_filter,
