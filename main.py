@@ -10,8 +10,7 @@ from src.analysis_context import (
     parse_ptn_with_optional_mu_correction,
 )
 from src.calculator import calculate_differences_for_layer
-from src.gamma_workflow import calculate_gamma_for_layer
-from src.gamma_report_generator import generate_gamma_report
+from src.point_gamma_workflow import calculate_point_gamma_for_layer
 from src.report_generator import generate_report
 from src.report_csv_exporter import export_report_csv
 from src.config_loader import parse_yaml_config
@@ -266,8 +265,9 @@ def run_analysis(log_dir, dcm_file, output_dir, report_name=None):
                             f"debug_data_beam_{beam_number}_layer_{layer_number}.csv",
                         )
 
-                    if _analysis_mode(analysis_config) == "gamma":
-                        analysis_results = calculate_gamma_for_layer(
+                    analysis_mode = _analysis_mode(analysis_config)
+                    if analysis_mode == "point_gamma":
+                        analysis_results = calculate_point_gamma_for_layer(
                             layer_data,
                             log_data_raw,
                             analysis_config,
@@ -307,7 +307,8 @@ def run_analysis(log_dir, dcm_file, output_dir, report_name=None):
     ):
         raise ValueError("No analysis results were generated. Check logs for warnings.")
 
-    if app_config["EXPORT_REPORT_CSV"] and _analysis_mode(analysis_config) != "gamma":
+    analysis_mode = _analysis_mode(analysis_config)
+    if app_config["EXPORT_REPORT_CSV"] and analysis_mode != "point_gamma":
         logger.info(f"Generating report CSV files in directory: {output_dir}")
         export_report_csv(
             report_data,
@@ -315,16 +316,19 @@ def run_analysis(log_dir, dcm_file, output_dir, report_name=None):
             report_mode=app_config["ZERO_DOSE_REPORT_MODE"],
         )
     elif app_config["EXPORT_REPORT_CSV"]:
-        logger.warning("Gamma analysis CSV export is not implemented in this pass; skipping")
+        logger.warning("Point gamma CSV export is not implemented in this pass; skipping")
 
     if app_config["EXPORT_PDF_REPORT"]:
         logger.info(f"Generating PDF report in directory: {output_dir}")
-        if _analysis_mode(analysis_config) == "gamma":
-            generate_gamma_report(
+        if analysis_mode == "point_gamma":
+            generate_report(
                 report_data,
                 output_dir,
                 report_name=report_name,
+                report_mode=app_config["ZERO_DOSE_REPORT_MODE"],
                 analysis_config=analysis_config,
+                analysis_mode="point_gamma",
+                report_detail_pdf=app_config.get("REPORT_DETAIL_PDF", False),
             )
         else:
             generate_report(

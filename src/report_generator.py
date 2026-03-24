@@ -11,6 +11,7 @@ from src.report_layout import (
     _draw_analysis_info_panel,
     _draw_layer_heatmap,
     _generate_executive_summary,
+    _generate_point_gamma_summary_page,
     _generate_summary_page,
 )
 from src.report_metrics import (
@@ -19,9 +20,17 @@ from src.report_metrics import (
     metric_value as _metric_value,
     spot_pass_summary as _spot_pass_summary,
 )
+from src.point_gamma_report_layout import (
+    generate_point_gamma_visual_page as _generate_point_gamma_visual_page,
+)
 
 
 logger = logging.getLogger(__name__)
+
+
+def _batched_layers(layers, batch_size=4):
+    for start_idx in range(0, len(layers), batch_size):
+        yield layers[start_idx:start_idx + batch_size]
 
 
 def _generate_error_bar_plot_for_beam(beam_name, layers_data, report_mode="raw"):
@@ -137,6 +146,75 @@ def _save_plots_to_pdf_grid(pdf, plots, beam_name):
     plt.close(fig)
 
 
+def _report_pdf_path(output_dir, report_name=None, suffix=None):
+    base_name = report_name if report_name else "analysis_report"
+    filename = f"{base_name}_{suffix}.pdf" if suffix else f"{base_name}.pdf"
+    return os.path.join(output_dir, filename)
+
+
+def _save_position_detail_pages(pdf, beam_name, beam_data, report_mode):
+    error_bar_fig = _generate_error_bar_plot_for_beam(
+        beam_name,
+        beam_data["layers"],
+        report_mode=report_mode,
+    )
+    pdf.savefig(error_bar_fig)
+    plt.close(error_bar_fig)
+    logger.info("Plot data for Beam '%s' added to PDF.", beam_name)
+
+    all_plan_positions = []
+    for layer_data in beam_data["layers"]:
+        results = layer_data.get("results", {})
+        plan_pos = results.get("plan_positions")
+        if plan_pos is not None:
+            all_plan_positions.append(plan_pos)
+
+    if all_plan_positions:
+        all_plan_positions = np.vstack(all_plan_positions)
+        margin = 20
+        global_min_coords = all_plan_positions.min(axis=0) - margin
+        global_max_coords = all_plan_positions.max(axis=0) + margin
+    else:
+        global_min_coords = np.array([0, 0])
+        global_max_coords = np.array([100, 100])
+
+    layers_list = beam_data["layers"]
+    for start_idx in range(0, len(layers_list), 6):
+        batch_layers = layers_list[start_idx:start_idx + 6]
+        layer_plots = []
+        for layer_data in batch_layers:
+            layer_index = layer_data.get("layer_index", 0)
+            results = layer_data.get("results", {})
+            plan_pos = results.get("plan_positions")
+            log_pos = results.get("log_positions")
+            if plan_pos is None or log_pos is None:
+                continue
+            layer_plots.append(
+                _generate_per_layer_position_plot(
+                    plan_pos,
+                    log_pos,
+                    layer_index,
+                    beam_name,
+                    global_min_coords,
+                    global_max_coords,
+                )
+            )
+        _save_plots_to_pdf_grid(pdf, layer_plots, beam_name)
+
+
+def _save_point_gamma_detail_pages(pdf, beam_name, beam_data, patient_id, patient_name):
+    layers = beam_data.get("layers", [])
+    for layer_batch in _batched_layers(layers, batch_size=4):
+        visual_fig = _generate_point_gamma_visual_page(
+            beam_name,
+            layer_batch,
+            patient_id=patient_id,
+            patient_name=patient_name,
+        )
+        pdf.savefig(visual_fig)
+        plt.close(visual_fig)
+
+
 def generate_report(
     report_data,
     output_dir,
@@ -144,13 +222,60 @@ def generate_report(
     report_name=None,
     report_mode="raw",
     analysis_config=None,
+    *,
+    analysis_mode="trajectory",
+    report_detail_pdf=False,
 ):
     """Generate a PDF report with analysis plots organized by beam."""
     os.makedirs(output_dir, exist_ok=True)
-    filename = f"{report_name}.pdf" if report_name else "analysis_report.pdf"
-    pdf_path = os.path.join(output_dir, filename)
     patient_id = report_data.get("_patient_id", "")
     patient_name = report_data.get("_patient_name", "")
+
+    if analysis_mode == "point_gamma":
+        summary_path = _report_pdf_path(output_dir, report_name, "summary")
+        with PdfPages(summary_path) as pdf:
+            for beam_name, beam_data in report_data.items():
+                if beam_name.startswith("_"):
+                    continue
+                if not beam_data["layers"]:
+                    logger.warning("No layers with analysis results for beam '%s'. Skipping.", beam_name)
+                    continue
+
+                summary_fig = _generate_point_gamma_summary_page(
+                    beam_name,
+                    beam_data,
+                    patient_id=patient_id,
+                    patient_name=patient_name,
+                    analysis_config=analysis_config,
+                )
+                pdf.savefig(summary_fig)
+                plt.close(summary_fig)
+                logger.info("Point-gamma summary page for Beam '%s' added to PDF.", beam_name)
+        logger.info("Point-gamma summary report saved to %s", summary_path)
+
+        if report_detail_pdf:
+            detail_path = _report_pdf_path(output_dir, report_name, "detail")
+            with PdfPages(detail_path) as pdf:
+                for beam_name, beam_data in report_data.items():
+                    if beam_name.startswith("_"):
+                        continue
+                    if not beam_data["layers"]:
+                        logger.warning("No layers with analysis results for beam '%s'. Skipping.", beam_name)
+                        continue
+
+                    _save_position_detail_pages(pdf, beam_name, beam_data, report_mode)
+                    _save_point_gamma_detail_pages(
+                        pdf,
+                        beam_name,
+                        beam_data,
+                        patient_id,
+                        patient_name,
+                    )
+            logger.info("Point-gamma detail report saved to %s", detail_path)
+        return
+
+    filename = f"{report_name}.pdf" if report_name else "analysis_report.pdf"
+    pdf_path = os.path.join(output_dir, filename)
 
     with PdfPages(pdf_path) as pdf:
         for beam_name, beam_data in report_data.items():
@@ -174,52 +299,6 @@ def generate_report(
                 logger.info("Summary page for Beam '%s' added to PDF.", beam_name)
                 continue
 
-            error_bar_fig = _generate_error_bar_plot_for_beam(
-                beam_name,
-                beam_data["layers"],
-                report_mode=report_mode,
-            )
-            pdf.savefig(error_bar_fig)
-            plt.close(error_bar_fig)
-            logger.info("Plot data for Beam '%s' added to PDF.", beam_name)
-
-            all_plan_positions = []
-            for layer_data in beam_data["layers"]:
-                results = layer_data.get("results", {})
-                plan_pos = results.get("plan_positions")
-                if plan_pos is not None:
-                    all_plan_positions.append(plan_pos)
-
-            if all_plan_positions:
-                all_plan_positions = np.vstack(all_plan_positions)
-                margin = 20
-                global_min_coords = all_plan_positions.min(axis=0) - margin
-                global_max_coords = all_plan_positions.max(axis=0) + margin
-            else:
-                global_min_coords = np.array([0, 0])
-                global_max_coords = np.array([100, 100])
-
-            layers_list = beam_data["layers"]
-            for start_idx in range(0, len(layers_list), 6):
-                batch_layers = layers_list[start_idx:start_idx + 6]
-                layer_plots = []
-                for layer_data in batch_layers:
-                    layer_index = layer_data.get("layer_index", 0)
-                    results = layer_data.get("results", {})
-                    plan_pos = results.get("plan_positions")
-                    log_pos = results.get("log_positions")
-                    if plan_pos is None or log_pos is None:
-                        continue
-                    layer_plots.append(
-                        _generate_per_layer_position_plot(
-                            plan_pos,
-                            log_pos,
-                            layer_index,
-                            beam_name,
-                            global_min_coords,
-                            global_max_coords,
-                        )
-                    )
-                _save_plots_to_pdf_grid(pdf, layer_plots, beam_name)
+            _save_position_detail_pages(pdf, beam_name, beam_data, report_mode)
 
     logger.info("Analysis report saved to %s", pdf_path)

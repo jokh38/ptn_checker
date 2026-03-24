@@ -117,6 +117,232 @@ def _draw_analysis_info_panel(ax, layers_data, report_mode, analysis_config=None
             tbl[row_idx, 1].set_facecolor("white")
 
 
+def _gamma_percent(value):
+    numeric = float(value)
+    return numeric * 100.0 if numeric <= 1.0 else numeric
+
+
+def _gamma_beam_verdict(pass_rate_percent):
+    if pass_rate_percent >= 95.0:
+        return "PASS", "#2ecc71"
+    if pass_rate_percent >= 80.0:
+        return "CONDITIONAL", "#e67e22"
+    return "FAIL", "#e74c3c"
+
+
+def _collect_point_gamma_beam_metrics(layers_data):
+    layer_labels = []
+    layer_pass_rates = []
+    pass_flags = []
+    gamma_means = []
+    gamma_maxes = []
+    evaluated_points = []
+    position_error_means = []
+    count_error_means = []
+    weighted_pass_total = 0.0
+    weighted_gamma_mean_total = 0.0
+    weighted_position_error_total = 0.0
+    weighted_count_error_total = 0.0
+    evaluated_point_total = 0
+
+    for layer in layers_data:
+        results = layer.get("results", {})
+        raw_idx = layer.get("layer_index", 0)
+        layer_labels.append(str(int(raw_idx) // 2 + 1))
+
+        pass_rate_percent = _gamma_percent(results.get("pass_rate", 0.0))
+        evaluated_point_count = int(results.get("evaluated_point_count", 0))
+        gamma_mean = float(results.get("gamma_mean", 0.0))
+        gamma_max = float(results.get("gamma_max", 0.0))
+        position_error_mean_mm = float(results.get("position_error_mean_mm", 0.0))
+        count_error_mean = float(results.get("count_error_mean", 0.0))
+
+        layer_pass_rates.append(pass_rate_percent)
+        pass_flags.append(pass_rate_percent < 95.0)
+        gamma_means.append(gamma_mean)
+        gamma_maxes.append(gamma_max)
+        evaluated_points.append(evaluated_point_count)
+        position_error_means.append(position_error_mean_mm)
+        count_error_means.append(count_error_mean)
+
+        weighted_pass_total += pass_rate_percent * evaluated_point_count
+        weighted_gamma_mean_total += gamma_mean * evaluated_point_count
+        weighted_position_error_total += position_error_mean_mm * evaluated_point_count
+        weighted_count_error_total += count_error_mean * evaluated_point_count
+        evaluated_point_total += evaluated_point_count
+
+    beam_pass_rate = (
+        float(weighted_pass_total / evaluated_point_total)
+        if evaluated_point_total > 0
+        else 0.0
+    )
+    beam_gamma_mean = (
+        float(weighted_gamma_mean_total / evaluated_point_total)
+        if evaluated_point_total > 0
+        else 0.0
+    )
+    beam_position_error_mean = (
+        float(weighted_position_error_total / evaluated_point_total)
+        if evaluated_point_total > 0
+        else 0.0
+    )
+    beam_count_error_mean = (
+        float(weighted_count_error_total / evaluated_point_total)
+        if evaluated_point_total > 0
+        else 0.0
+    )
+    return {
+        "layer_labels": layer_labels,
+        "layer_pass_rates": layer_pass_rates,
+        "pass_flags": pass_flags,
+        "gamma_means": gamma_means,
+        "gamma_maxes": gamma_maxes,
+        "evaluated_points": evaluated_points,
+        "position_error_means": position_error_means,
+        "count_error_means": count_error_means,
+        "beam_pass_rate": beam_pass_rate,
+        "beam_gamma_mean": beam_gamma_mean,
+        "beam_gamma_max": float(max(gamma_maxes)) if gamma_maxes else 0.0,
+        "beam_position_error_mean": beam_position_error_mean,
+        "beam_count_error_mean": beam_count_error_mean,
+        "evaluated_point_total": evaluated_point_total,
+    }
+
+
+def _draw_point_gamma_analysis_info_panel(
+    ax,
+    analysis_config=None,
+):
+    cfg = analysis_config or {}
+    ax.set_title("Config / Info", fontsize=8, fontweight="bold", pad=0, y=0.95)
+    tbl = ax.table(
+        cellText=[[
+            f"{cfg.get('GAMMA_DISTANCE_MM_THRESHOLD', 0):.1f} mm",
+            f"{cfg.get('GAMMA_FLUENCE_PERCENT_THRESHOLD', 0):.1f}% of peak plan count",
+            f"{cfg.get('GAMMA_LOWER_PERCENT_FLUENCE_CUTOFF', 0):.1f}% of peak plan count",
+        ]],
+        colLabels=["Distance to agreement", "Count threshold", "Lower fluence cutoff"],
+        bbox=[0.0, 0.18, 1.0, 0.70],
+        cellLoc="center",
+        colWidths=[0.30, 0.35, 0.35],
+    )
+    tbl.auto_set_font_size(False)
+    tbl.set_fontsize(6.3)
+    tbl.scale(1.0, 1.05)
+
+    for col_idx in range(3):
+        tbl[0, col_idx].set_facecolor("#34495e")
+        tbl[0, col_idx].set_text_props(color="white", fontweight="bold", fontsize=6.3)
+        tbl[1, col_idx].set_facecolor("white")
+
+
+def _draw_position_summary_table(
+    ax,
+    *,
+    global_mean_x,
+    global_mean_y,
+    global_std_x,
+    global_std_y,
+    global_rmse_x,
+    global_rmse_y,
+    global_max_x,
+    global_max_y,
+    global_p95_x,
+    global_p95_y,
+    similarity_str,
+):
+    thr_mean = THRESHOLDS["mean_diff_mm"]
+    thr_std = THRESHOLDS["std_diff_mm"]
+    thr_max = THRESHOLDS["max_abs_diff_mm"]
+    ax.axis("off")
+    col_labels = [
+        "",
+        f"Mean (\u2264{thr_mean})",
+        f"Std (\u2264{thr_std})",
+        "RMSE (mm)",
+        f"Max (\u2264{thr_max})",
+        "P95 (mm)",
+        "Similarity",
+    ]
+    metrics_table = ax.table(
+        cellText=[
+            ["X", f"{global_mean_x:+.3f}", f"{global_std_x:.3f}", f"{global_rmse_x:.3f}", f"{global_max_x:.3f}", f"{global_p95_x:.3f}", similarity_str],
+            ["Y", f"{global_mean_y:+.3f}", f"{global_std_y:.3f}", f"{global_rmse_y:.3f}", f"{global_max_y:.3f}", f"{global_p95_y:.3f}", ""],
+        ],
+        colLabels=col_labels,
+        loc="center",
+        cellLoc="center",
+        colWidths=[0.12, 0.15, 0.15, 0.14, 0.14, 0.14, 0.16],
+    )
+    metrics_table.auto_set_font_size(False)
+    metrics_table.set_fontsize(6.5)
+    metrics_table.scale(1.0, 1.15)
+    for idx in range(len(col_labels)):
+        metrics_table[0, idx].set_facecolor("#34495e")
+        metrics_table[0, idx].set_text_props(color="white", fontweight="bold", va="center")
+    for row_idx, color in ((1, "#3498db"), (2, "#e67e22")):
+        metrics_table[row_idx, 0].set_facecolor(color)
+        metrics_table[row_idx, 0].set_text_props(color="white", fontweight="bold", va="center")
+    for (_, _), cell in metrics_table.get_celld().items():
+        cell.set_text_props(va="center")
+        cell.PAD = 0.02
+
+    for row_idx, row_vals in enumerate([
+        (abs(global_mean_x), global_std_x, global_rmse_x, global_max_x, global_p95_x),
+        (abs(global_mean_y), global_std_y, global_rmse_y, global_max_y, global_p95_y),
+    ], start=1):
+        for col_idx, threshold in {1: thr_mean, 2: thr_std, 4: thr_max}.items():
+            ratio = row_vals[col_idx - 1] / threshold if threshold > 0 else 0
+            metrics_table[row_idx, col_idx].set_facecolor(
+                "#d5f5e3" if ratio <= 0.5 else "#fdebd0" if ratio <= 1.0 else "#fadbd8"
+            )
+
+
+def _draw_gamma_summary_table(
+    ax,
+    *,
+    num_layers,
+    beam_pass_rate,
+    beam_gamma_mean,
+    beam_gamma_max,
+    evaluated_point_total,
+    beam_position_error_mean,
+    beam_count_error_mean,
+):
+    ax.axis("off")
+    ax.set_title("Gamma Summary", fontsize=8, fontweight="bold", pad=0, y=0.95)
+    tbl = ax.table(
+        cellText=[[
+            f"{beam_pass_rate:.1f}%",
+            f"{beam_gamma_mean:.3f}",
+            f"{beam_gamma_max:.3f}",
+            f"{evaluated_point_total:,}",
+            f"{beam_position_error_mean:.3f} mm",
+            f"{beam_count_error_mean:.3g}",
+            f"{num_layers}",
+        ]],
+        colLabels=[
+            "Gamma pass (%)",
+            "Gamma mean",
+            "Gamma max",
+            "Evaluated points",
+            "Pos err mean (mm)",
+            "Count err mean",
+            "Layers",
+        ],
+        loc="center",
+        cellLoc="center",
+        colWidths=[0.15, 0.125, 0.125, 0.165, 0.18, 0.16, 0.095],
+    )
+    tbl.auto_set_font_size(False)
+    tbl.set_fontsize(6.1)
+    tbl.scale(1.0, 1.12)
+    for col_idx in range(7):
+        tbl[0, col_idx].set_facecolor("#34495e")
+        tbl[0, col_idx].set_text_props(color="white", fontweight="bold", fontsize=6.1)
+        tbl[1, col_idx].set_facecolor("white")
+
+
 def _layer_flag_codes(flag_rows, num_layers):
     if num_layers <= 0:
         return [], []
@@ -154,6 +380,12 @@ def _draw_layer_heatmap(
     flag_ax=None,
     flag_legend_ax=None,
     cbar_ax=None,
+    side_values=None,
+    side_label=None,
+    side_cmap=None,
+    side_vmin=None,
+    side_vmax=None,
+    side_text_labels=None,
 ):
     heatmap_values = np.asarray(heatmap_values, dtype=float)
     num_metrics, num_layers = heatmap_values.shape if heatmap_values.size else (0, 0)
@@ -170,7 +402,12 @@ def _draw_layer_heatmap(
         header_ax.plot([2.5, 5.5], [0.57, 0.57], color="#34495e", linewidth=0.8)
         header_ax.text(1.0, 0.61, "X", ha="center", va="bottom", fontsize=6, fontweight="bold")
         header_ax.text(4.0, 0.61, "Y", ha="center", va="bottom", fontsize=6, fontweight="bold")
-    if flag_rows:
+        if num_metrics >= 7:
+            header_ax.plot([5.5, num_metrics - 0.5], [0.57, 0.57], color="#34495e", linewidth=0.8)
+            header_ax.text(6.0, 0.61, "Gamma", ha="center", va="bottom", fontsize=6, fontweight="bold")
+    if side_values is not None:
+        header_ax.text(1.055, 0.50, side_label or "", ha="center", va="center", fontsize=6, transform=header_ax.transAxes, clip_on=False)
+    elif flag_rows:
         header_ax.text(1.055, 0.50, "Flag", ha="center", va="center", fontsize=6, transform=header_ax.transAxes, clip_on=False)
 
     image = ax.imshow(
@@ -207,7 +444,40 @@ def _draw_layer_heatmap(
     cbar.set_label("Error severity (mm)", fontsize=6)
 
     flag_image = None
-    if flag_rows:
+    if side_values is not None:
+        side_array = np.asarray(side_values, dtype=float).reshape(num_layers, 1)
+        if flag_ax is None:
+            flag_ax = ax.inset_axes([1.02, 0.0, 0.12, 1.0])
+        flag_image = flag_ax.imshow(
+            side_array,
+            aspect="auto",
+            interpolation="nearest",
+            cmap=side_cmap or plt.cm.RdYlGn,
+            vmin=0 if side_vmin is None else side_vmin,
+            vmax=100 if side_vmax is None else side_vmax,
+            origin="upper",
+        )
+        flag_ax.set_xticks([0])
+        flag_ax.set_xticklabels([""], fontsize=6)
+        if num_layers > 25:
+            tick_step = max(1, int(np.ceil(num_layers / 25)))
+            flag_ax.set_yticks(np.arange(0, num_layers, tick_step))
+            flag_ax.set_yticklabels([])
+        else:
+            flag_ax.set_yticks(np.arange(num_layers))
+            flag_ax.set_yticklabels([])
+        flag_ax.tick_params(axis="x", length=0, pad=1)
+        flag_ax.tick_params(axis="y", length=0)
+        rendered_side_labels = side_text_labels or [
+            f"{float(value):.0f}" if np.isfinite(value) else ""
+            for value in np.ravel(side_array)
+        ]
+        for layer_idx, text_label in enumerate(rendered_side_labels):
+            if text_label:
+                flag_ax.text(0, layer_idx, text_label, ha="center", va="center", fontsize=5.5, fontweight="bold", color="black")
+        if flag_legend_ax is not None:
+            flag_legend_ax.axis("off")
+    elif flag_rows:
         flag_codes, flag_values = _layer_flag_codes(flag_rows, num_layers)
         if flag_ax is None:
             flag_ax = ax.inset_axes([1.02, 0.0, 0.12, 1.0])
@@ -396,8 +666,8 @@ def _generate_summary_page(
                 "#d5f5e3" if ratio <= 0.5 else "#fdebd0" if ratio <= 1.0 else "#fadbd8"
             )
 
-    middle_gs = fig.add_gridspec(1, 2, left=0.06, right=0.97, bottom=0.28, top=0.78, wspace=0.16, width_ratios=[0.9, 1.3])
-    left_gs = middle_gs[0, 0].subgridspec(5, 1, height_ratios=[0.06, 0.08, 0.76, 0.06, 0.04], hspace=0.08)
+    middle_gs = fig.add_gridspec(1, 2, left=0.06, right=0.97, bottom=0.20, top=0.78, wspace=0.16, width_ratios=[0.9, 1.3])
+    left_gs = middle_gs[0, 0].subgridspec(5, 1, height_ratios=[0.04, 0.08, 0.76, 0.06, 0.04], hspace=0.08)
     ax_trend_title = fig.add_subplot(left_gs[0, 0])
     ax_trend_title.axis("off")
     ax_trend_title.text(0.5, 0.5, "Layer Trend", ha="center", va="center", fontsize=9, fontweight="bold", transform=ax_trend_title.transAxes)
@@ -429,7 +699,7 @@ def _generate_summary_page(
         ax_err.tick_params(axis="y", labelsize=4)
     ax_err.legend(fontsize=5, loc="upper left")
 
-    right_gs = middle_gs[0, 1].subgridspec(5, 2, height_ratios=[0.06, 0.06, 0.815, 0.025, 0.04], width_ratios=[0.90, 0.10], hspace=0.01, wspace=0.08)
+    right_gs = middle_gs[0, 1].subgridspec(5, 2, height_ratios=[0.04, 0.06, 0.815, 0.025, 0.04], width_ratios=[0.90, 0.10], hspace=0.01, wspace=0.08)
     ax_heatmap_title = fig.add_subplot(right_gs[0, :])
     ax_heatmap_header = fig.add_subplot(right_gs[1, 0])
     ax_heatmap = fig.add_subplot(right_gs[2, 0])
@@ -478,7 +748,7 @@ def _generate_summary_page(
         cbar_ax=ax_heatmap_cbar,
     )
 
-    bottom_gs = fig.add_gridspec(1, 2, left=0.06, right=0.97, bottom=0.03, top=0.24, wspace=0.10, width_ratios=[1.4, 1.0])
+    bottom_gs = fig.add_gridspec(1, 2, left=0.06, right=0.97, bottom=0.03, top=0.16, wspace=0.10, width_ratios=[0.6, 1.0])
     ax_filter = fig.add_subplot(bottom_gs[0, 0])
     ax_filter.axis("off")
     _draw_analysis_info_panel(ax_filter, layers_data, report_mode, analysis_config)
@@ -492,6 +762,195 @@ def _generate_summary_page(
             "\n".join([f"L{layer_labels[idx]}: max_x {max_x_all[idx]:.2f} mm, max_y {max_y_all[idx]:.2f} mm" for idx in worst_order]),
             ha="left", va="top", fontsize=6.5, family="monospace", transform=ax_worst.transAxes,
         )
+    return fig
+
+
+def _generate_point_gamma_summary_page(
+    beam_name,
+    beam_data,
+    *,
+    patient_id="",
+    patient_name="",
+    analysis_config=None,
+):
+    from datetime import date as _date
+
+    layers_data = beam_data["layers"]
+    num_layers = len(layers_data)
+    metrics, all_plan_pos, all_log_pos, _, layer_labels, _, _ = _collect_beam_metrics(
+        layers_data, "raw"
+    )
+    gamma_metrics = _collect_point_gamma_beam_metrics(layers_data)
+
+    mean_x_all = metrics["mean_x"]
+    mean_y_all = metrics["mean_y"]
+    std_x_all = metrics["std_x"]
+    std_y_all = metrics["std_y"]
+    rmse_x_all = metrics["rmse_x"]
+    rmse_y_all = metrics["rmse_y"]
+    max_x_all = metrics["max_x"]
+    max_y_all = metrics["max_y"]
+    p95_x_all = metrics["p95_x"]
+    p95_y_all = metrics["p95_y"]
+
+    similarity_str = "N/A"
+    if all_plan_pos and all_log_pos:
+        plan_concat = np.vstack(all_plan_pos).ravel()
+        log_concat = np.vstack(all_log_pos).ravel()
+        if len(plan_concat) == len(log_concat) and len(plan_concat) > 1:
+            corr, _ = pearsonr(plan_concat, log_concat)
+            similarity_str = f"{corr:.6f}"
+
+    verdict, pass_color = _gamma_beam_verdict(gamma_metrics["beam_pass_rate"])
+    global_mean_x = np.mean(mean_x_all) if mean_x_all else 0
+    global_mean_y = np.mean(mean_y_all) if mean_y_all else 0
+    global_std_x = np.mean(std_x_all) if std_x_all else 0
+    global_std_y = np.mean(std_y_all) if std_y_all else 0
+    global_rmse_x = np.mean(rmse_x_all) if rmse_x_all else 0
+    global_rmse_y = np.mean(rmse_y_all) if rmse_y_all else 0
+    global_max_x = max(max_x_all) if max_x_all else 0
+    global_max_y = max(max_y_all) if max_y_all else 0
+    global_p95_x = np.mean(p95_x_all) if p95_x_all else 0
+    global_p95_y = np.mean(p95_y_all) if p95_y_all else 0
+
+    fig = plt.figure(figsize=A4_FIGSIZE)
+    fig.text(0.50, 0.97, beam_name, ha="center", va="top", fontsize=16, fontweight="bold")
+    fig.text(
+        0.95,
+        0.97,
+        f"{verdict} {gamma_metrics['beam_pass_rate']:.0f}%",
+        ha="right",
+        va="top",
+        fontsize=10,
+        fontweight="bold",
+        color="white",
+        bbox=dict(boxstyle="round,pad=0.3", facecolor=pass_color, edgecolor="none"),
+    )
+    fig.text(
+        0.50,
+        0.935,
+        f"Patient ID: {patient_id}    |    Name: {patient_name}    |    Date: {_date.today().isoformat()}    |    Layers: {num_layers}",
+        ha="center",
+        va="top",
+        fontsize=8,
+        color="#555555",
+    )
+    fig.text(
+        0.50,
+        0.918,
+        "Point Gamma Summary",
+        ha="center",
+        va="top",
+        fontsize=7,
+        fontweight="bold",
+        color="#555555",
+    )
+
+    top_gs = fig.add_gridspec(2, 1, left=0.06, right=0.94, bottom=0.785, top=0.9, hspace=0.3)
+    ax_position_summary = fig.add_subplot(top_gs[0, 0])
+    _draw_position_summary_table(
+        ax_position_summary,
+        global_mean_x=global_mean_x,
+        global_mean_y=global_mean_y,
+        global_std_x=global_std_x,
+        global_std_y=global_std_y,
+        global_rmse_x=global_rmse_x,
+        global_rmse_y=global_rmse_y,
+        global_max_x=global_max_x,
+        global_max_y=global_max_y,
+        global_p95_x=global_p95_x,
+        global_p95_y=global_p95_y,
+        similarity_str=similarity_str,
+    )
+    ax_gamma_summary = fig.add_subplot(top_gs[1, 0])
+    _draw_gamma_summary_table(
+        ax_gamma_summary,
+        num_layers=num_layers,
+        beam_pass_rate=gamma_metrics["beam_pass_rate"],
+        beam_gamma_mean=gamma_metrics["beam_gamma_mean"],
+        beam_gamma_max=gamma_metrics["beam_gamma_max"],
+        evaluated_point_total=gamma_metrics["evaluated_point_total"],
+        beam_position_error_mean=gamma_metrics["beam_position_error_mean"],
+        beam_count_error_mean=gamma_metrics["beam_count_error_mean"],
+    )
+
+    middle_gs = fig.add_gridspec(1, 2, left=0.06, right=0.97, bottom=0.205, top=0.79, wspace=0.16, width_ratios=[1.0, 1.2])
+    left_gs = middle_gs[0, 0].subgridspec(5, 1, height_ratios=[0.06, 0.04, 0.80, 0.06, 0.04], hspace=0.08)
+    ax_trend_title = fig.add_subplot(left_gs[0, 0])
+    ax_trend_title.axis("off")
+    ax_trend_title.text(0.5, 0.5, "Layer Trend", ha="center", va="center", fontsize=9, fontweight="bold", transform=ax_trend_title.transAxes)
+    ax_err = fig.add_subplot(left_gs[1:, 0])
+    layer_idx = np.arange(1, num_layers + 1)
+    worst_axis_error = np.maximum(np.array(max_x_all), np.array(max_y_all))
+    y_x = layer_idx - 0.16
+    y_y = layer_idx + 0.16
+    ax_err.errorbar(mean_x_all, y_x, xerr=std_x_all, fmt="o", markersize=3.5, linewidth=1.0, capsize=2.5, color="#1f77b4", ecolor="#1f77b4", label="X mean ± std", zorder=3)
+    ax_err.errorbar(mean_y_all, y_y, xerr=std_y_all, fmt="s", markersize=3.2, linewidth=1.0, capsize=2.5, color="#ff7f0e", ecolor="#ff7f0e", label="Y mean ± std", zorder=3)
+    ax_err.scatter(mean_x_all, y_x, c=["#2ecc71" if passed else "#e74c3c" for passed in gamma_metrics["pass_flags"]], s=14, zorder=4, edgecolors="white", linewidths=0.3)
+    ax_err.scatter(mean_y_all, y_y, c=["#2ecc71" if passed else "#e74c3c" for passed in gamma_metrics["pass_flags"]], s=14, zorder=4, edgecolors="white", linewidths=0.3, marker="s")
+    for x_pos, style, color, label in (
+        (0, "-", "#7f8c8d", None),
+        (THRESHOLDS["mean_diff_mm"], "--", "#95a5a6", None),
+        (-THRESHOLDS["mean_diff_mm"], "--", "#95a5a6", f"±{THRESHOLDS['mean_diff_mm']} mm mean target"),
+        (THRESHOLDS["max_abs_diff_mm"], ":", "#bdc3c7", None),
+        (-THRESHOLDS["max_abs_diff_mm"], ":", "#bdc3c7", f"±{THRESHOLDS['max_abs_diff_mm']} mm max limit"),
+    ):
+        ax_err.axvline(x_pos, linestyle=style, linewidth=0.8 if style != "-" else 0.9, color=color, alpha=0.9 if style != "--" else 0.8, label=label)
+    ax_err.set_xlabel("Deviation (mm)", fontsize=7)
+    ax_err.set_ylabel("Layer", fontsize=7)
+    ax_err.set_yticks(layer_idx)
+    ax_err.set_yticklabels(layer_labels)
+    ax_err.set_ylim(num_layers + 0.6, 0.4)
+    ax_err.tick_params(labelsize=6)
+    ax_err.grid(True, alpha=0.3, axis="x")
+    if num_layers > 25:
+        ax_err.tick_params(axis="y", labelsize=4)
+    ax_err.legend(fontsize=5, loc="upper left")
+
+    right_gs = middle_gs[0, 1].subgridspec(5, 2, height_ratios=[0.06, 0.02, 0.855, 0.025, 0.04], width_ratios=[0.90, 0.10], hspace=0.01, wspace=0.08)
+    ax_heatmap_title = fig.add_subplot(right_gs[0, :])
+    ax_heatmap_header = fig.add_subplot(right_gs[1, 0])
+    ax_heatmap = fig.add_subplot(right_gs[2, 0])
+    ax_heatmap_flags = fig.add_subplot(right_gs[2, 1])
+    ax_heatmap_cbar = fig.add_subplot(right_gs[3, :])
+    ax_heatmap_flag_legend = fig.add_subplot(right_gs[4, :])
+    heatmap_pos = ax_heatmap.get_position()
+    header_pos = ax_heatmap_header.get_position()
+    tightened_heatmap_top = header_pos.y0 - 0.0002
+    if tightened_heatmap_top > heatmap_pos.y1:
+        ax_heatmap.set_position([heatmap_pos.x0, heatmap_pos.y0, heatmap_pos.width, tightened_heatmap_top - heatmap_pos.y0])
+        flag_pos = ax_heatmap_flags.get_position()
+        ax_heatmap_flags.set_position([flag_pos.x0, flag_pos.y0, flag_pos.width, tightened_heatmap_top - flag_pos.y0])
+    for axis in (ax_heatmap_cbar, ax_heatmap_flag_legend):
+        pos = axis.get_position()
+        axis.set_position([pos.x0, pos.y0 - 0.006, pos.width, pos.height])
+
+    _draw_layer_heatmap(
+        fig,
+        ax_heatmap_title,
+        ax_heatmap_header,
+        ax_heatmap,
+        np.array([np.abs(mean_x_all), std_x_all, max_x_all, np.abs(mean_y_all), std_y_all, max_y_all]),
+        layer_labels,
+        ["Mean", "Std", "Max", "Mean", "Std", "Max"],
+        flag_ax=ax_heatmap_flags,
+        flag_legend_ax=ax_heatmap_flag_legend,
+        cbar_ax=ax_heatmap_cbar,
+        side_values=gamma_metrics["layer_pass_rates"],
+        side_label="Gamma",
+        side_cmap=plt.cm.RdYlGn,
+        side_vmin=0,
+        side_vmax=100,
+        side_text_labels=[f"{value:.0f}" for value in gamma_metrics["layer_pass_rates"]],
+    )
+
+    bottom_gs = fig.add_gridspec(1, 1, left=0.06, right=0.97, bottom=0.015, top=0.18)
+    ax_filter = fig.add_subplot(bottom_gs[0, 0])
+    ax_filter.axis("off")
+    _draw_point_gamma_analysis_info_panel(
+        ax_filter,
+        analysis_config,
+    )
     return fig
 
 

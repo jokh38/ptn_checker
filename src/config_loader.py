@@ -5,7 +5,7 @@ import yaml
 logger = logging.getLogger(__name__)
 
 VALID_ZERO_DOSE_REPORT_MODES = {"filtered", "raw", "both"}
-VALID_ANALYSIS_MODES = {"trajectory", "gamma"}
+VALID_ANALYSIS_MODES = {"trajectory", "point_gamma"}
 
 DEFAULT_ZERO_DOSE_FILTER = {
     "enabled": True,
@@ -19,27 +19,12 @@ DEFAULT_ZERO_DOSE_FILTER = {
     "report_mode": "filtered",
 }
 
-DEFAULT_GAMMA_CONFIG = {
+DEFAULT_POINT_GAMMA_CONFIG = {
     "fluence_percent_threshold": 5.0,
     "distance_mm_threshold": 2.0,
     "lower_percent_fluence_cutoff": 10.0,
-    "grid_resolution_mm": 3.0,
-    "spot_tolerance_mm": 1.0,
-    "require_planrange_mu_correction": True,
-    "allow_relative_fluence_fallback": True,
-    "use_gaussian_spot_model": True,
-    "gaussian_sigma_mm": 3.0,
-    "map_margin_mm": 2.0,
     "normalization_factor_by_machine": {},
 }
-
-
-def _parse_bool_field(section_name: str, key: str, value) -> bool:
-    if isinstance(value, bool):
-        return value
-    raise ValueError(f"{section_name}.{key} must be a boolean")
-
-
 def _validate_settling_config(config: dict) -> None:
     threshold = config.get("SETTLING_THRESHOLD_MM")
     window = config.get("SETTLING_WINDOW_SAMPLES")
@@ -94,6 +79,7 @@ def _parse_key_value_config(
 def _validate_app_config(config: dict) -> None:
     for key in (
         "REPORT_STYLE_SUMMARY",
+        "REPORT_DETAIL_PDF",
         "EXPORT_PDF_REPORT",
         "EXPORT_REPORT_CSV",
         "SAVE_DEBUG_CSV",
@@ -128,34 +114,22 @@ def _validate_app_config(config: dict) -> None:
     if config.get("ZERO_DOSE_POST_MINIMAL_DOSE_BOUNDARY_S") < 0:
         raise ValueError("ZERO_DOSE_POST_MINIMAL_DOSE_BOUNDARY_S must be >= 0")
 
-    gamma_float_keys = (
+    point_gamma_float_keys = (
         "GAMMA_FLUENCE_PERCENT_THRESHOLD",
         "GAMMA_DISTANCE_MM_THRESHOLD",
         "GAMMA_LOWER_PERCENT_FLUENCE_CUTOFF",
-        "GAMMA_GRID_RESOLUTION_MM",
-        "GAMMA_SPOT_TOLERANCE_MM",
-        "GAMMA_GAUSSIAN_SIGMA_MM",
-        "GAMMA_MAP_MARGIN_MM",
     )
-    for key in gamma_float_keys:
+    for key in point_gamma_float_keys:
         if config.get(key) <= 0:
             raise ValueError(f"{key} must be > 0")
 
-    for key in (
-        "GAMMA_REQUIRE_PLANRANGE_MU_CORRECTION",
-        "GAMMA_ALLOW_RELATIVE_FLUENCE_FALLBACK",
-        "GAMMA_USE_GAUSSIAN_SPOT_MODEL",
-    ):
-        if not isinstance(config.get(key), bool):
-            raise ValueError(f"{key} must be a boolean")
 
-
-def _parse_gamma_normalization_map(raw_value) -> dict[str, float]:
+def _parse_point_gamma_normalization_map(raw_value) -> dict[str, float]:
     if raw_value in (None, {}):
         return {}
     if not isinstance(raw_value, dict):
         raise ValueError(
-            "Invalid YAML structure: 'gamma.normalization_factor_by_machine' must be a dict"
+            "Invalid YAML structure: 'point_gamma.normalization_factor_by_machine' must be a dict"
         )
 
     parsed = {}
@@ -188,14 +162,14 @@ def _parse_zero_dose_filter_config(yaml_data: dict) -> dict:
     }
 
 
-def _parse_gamma_config(yaml_data: dict) -> dict:
-    section = yaml_data.get("gamma") or {}
+def _parse_point_gamma_config(yaml_data: dict) -> dict:
+    section = yaml_data.get("point_gamma") or {}
     if not isinstance(section, dict):
-        raise ValueError("Invalid YAML structure: 'gamma' must be a dict")
+        raise ValueError("Invalid YAML structure: 'point_gamma' must be a dict")
 
-    merged = DEFAULT_GAMMA_CONFIG.copy()
+    merged = DEFAULT_POINT_GAMMA_CONFIG.copy()
     merged.update(section)
-    normalization_map = _parse_gamma_normalization_map(
+    normalization_map = _parse_point_gamma_normalization_map(
         merged.get("normalization_factor_by_machine")
     )
     return {
@@ -206,25 +180,6 @@ def _parse_gamma_config(yaml_data: dict) -> dict:
         "GAMMA_LOWER_PERCENT_FLUENCE_CUTOFF": float(
             merged["lower_percent_fluence_cutoff"]
         ),
-        "GAMMA_GRID_RESOLUTION_MM": float(merged["grid_resolution_mm"]),
-        "GAMMA_SPOT_TOLERANCE_MM": float(merged["spot_tolerance_mm"]),
-        "GAMMA_REQUIRE_PLANRANGE_MU_CORRECTION": _parse_bool_field(
-            "gamma",
-            "require_planrange_mu_correction",
-            merged["require_planrange_mu_correction"],
-        ),
-        "GAMMA_ALLOW_RELATIVE_FLUENCE_FALLBACK": _parse_bool_field(
-            "gamma",
-            "allow_relative_fluence_fallback",
-            merged["allow_relative_fluence_fallback"],
-        ),
-        "GAMMA_USE_GAUSSIAN_SPOT_MODEL": _parse_bool_field(
-            "gamma",
-            "use_gaussian_spot_model",
-            merged["use_gaussian_spot_model"],
-        ),
-        "GAMMA_GAUSSIAN_SIGMA_MM": float(merged["gaussian_sigma_mm"]),
-        "GAMMA_MAP_MARGIN_MM": float(merged["map_margin_mm"]),
         "GAMMA_NORMALIZATION_FACTOR_BY_MACHINE": normalization_map,
     }
 
@@ -256,31 +211,34 @@ def parse_yaml_config(file_path: str) -> dict:
         raise ValueError("Invalid YAML structure: 'app' must be a dict")
 
     report_style_summary = app_section.get("report_style_summary")
+    report_detail_pdf = app_section.get("report_detail_pdf")
     export_pdf_report = app_section.get("export_pdf_report")
     export_report_csv = app_section.get("export_report_csv")
     save_debug_csv = app_section.get("save_debug_csv")
 
     if (
         report_style_summary is None
+        or report_detail_pdf is None
         or export_pdf_report is None
         or export_report_csv is None
         or save_debug_csv is None
     ):
         raise ValueError(
             "Missing required keys in app section: "
-            "report_style_summary, export_pdf_report, export_report_csv, save_debug_csv"
+            "report_style_summary, report_detail_pdf, export_pdf_report, export_report_csv, save_debug_csv"
         )
 
     config = {
         "REPORT_STYLE_SUMMARY": report_style_summary,
         "REPORT_STYLE": "summary" if report_style_summary else "classic",
+        "REPORT_DETAIL_PDF": report_detail_pdf,
         "EXPORT_PDF_REPORT": export_pdf_report,
         "EXPORT_REPORT_CSV": export_report_csv,
         "SAVE_DEBUG_CSV": save_debug_csv,
         "ANALYSIS_MODE": str(app_section.get("analysis_mode", "trajectory")).lower(),
     }
     config.update(_parse_zero_dose_filter_config(yaml_data))
-    config.update(_parse_gamma_config(yaml_data))
+    config.update(_parse_point_gamma_config(yaml_data))
 
     _validate_app_config(config)
     return config

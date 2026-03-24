@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from src.report_generator import (
     generate_report,
     _generate_error_bar_plot_for_beam,
+    _generate_point_gamma_summary_page,
     _generate_summary_page,
     _draw_layer_heatmap,
     _draw_analysis_info_panel,
@@ -95,6 +96,39 @@ class TestReportGenerator(unittest.TestCase):
                 ]
             }
         }
+        self.point_gamma_report_data = {
+            "Beam 1": {
+                "beam_number": 1,
+                "layers": [
+                    {
+                        "layer_index": 0,
+                        "results": {
+                            "pass_rate": 0.96,
+                            "gamma_mean": 0.31,
+                            "gamma_max": 0.88,
+                            "evaluated_point_count": 12,
+                            "position_error_mean_mm": 0.22,
+                            "count_error_mean": 0.015,
+                            "mean_diff_x": 0.1,
+                            "mean_diff_y": -0.1,
+                            "std_diff_x": 0.2,
+                            "std_diff_y": 0.3,
+                            "rmse_x": 0.22,
+                            "rmse_y": 0.32,
+                            "max_abs_diff_x": 0.5,
+                            "max_abs_diff_y": 0.6,
+                            "p95_abs_diff_x": 0.4,
+                            "p95_abs_diff_y": 0.5,
+                            "diff_x": np.array([0.0, 0.1, 0.2]),
+                            "diff_y": np.array([0.0, -0.1, -0.2]),
+                            "plan_positions": np.array([[0.0, 0.0], [1.0, 1.0], [2.0, 2.0]]),
+                            "log_positions": np.array([[0.0, 0.0], [1.1, 0.9], [2.2, 1.8]]),
+                            "gamma_map": np.array([[0.2, 0.4], [0.1, 0.3]]),
+                        },
+                    }
+                ],
+            }
+        }
 
     def tearDown(self):
         if os.path.exists(self.test_dir):
@@ -175,6 +209,236 @@ class TestReportGenerator(unittest.TestCase):
         expected_pdf_path = os.path.join(self.output_dir, "analysis_report.pdf")
         generate_report(report_data, self.output_dir)
         self.assertTrue(os.path.exists(expected_pdf_path))
+
+    def test_generate_point_gamma_summary_page_includes_gamma_metadata_and_pass_ratio(self):
+        beam_data = self.point_gamma_report_data["Beam 1"]
+
+        fig = _generate_point_gamma_summary_page(
+            "Beam 1",
+            beam_data,
+            patient_id="12345",
+            patient_name="Test^Point",
+            analysis_config={
+                "GAMMA_FLUENCE_PERCENT_THRESHOLD": 5.0,
+                "GAMMA_DISTANCE_MM_THRESHOLD": 2.0,
+                "GAMMA_LOWER_PERCENT_FLUENCE_CUTOFF": 10.0,
+            },
+        )
+
+        rendered_parts = []
+        rendered_parts.extend(text.get_text() for text in fig.texts)
+        for ax in fig.axes:
+            rendered_parts.extend(text.get_text() for text in ax.texts)
+            for table in ax.tables:
+                rendered_parts.extend(
+                    cell.get_text().get_text()
+                    for cell in table.get_celld().values()
+                )
+        rendered_text = " ".join(rendered_parts)
+        self.assertIn("Gamma pass (%)", rendered_text)
+        self.assertIn("Distance to agreement", rendered_text)
+        self.assertIn("Lower fluence cutoff", rendered_text)
+        self.assertIn("Count threshold", rendered_text)
+        self.assertIn("Point Gamma", rendered_text)
+        summary_title = next(text for text in fig.texts if text.get_text() == "Point Gamma Summary")
+        self.assertEqual("bold", summary_title.get_fontweight())
+        plt.close(fig)
+
+    def test_generate_point_gamma_summary_page_uses_stacked_top_summary_tables(self):
+        beam_data = self.point_gamma_report_data["Beam 1"]
+
+        fig = _generate_point_gamma_summary_page(
+            "Beam 1",
+            beam_data,
+            patient_id="12345",
+            patient_name="Test^Point",
+            analysis_config={
+                "GAMMA_FLUENCE_PERCENT_THRESHOLD": 5.0,
+                "GAMMA_DISTANCE_MM_THRESHOLD": 2.0,
+                "GAMMA_LOWER_PERCENT_FLUENCE_CUTOFF": 10.0,
+            },
+        )
+
+        table_titles = [
+            ax.get_title()
+            for ax in fig.axes
+            if ax.get_title() in {"Position Summary", "Gamma Summary", "Point Gamma Summary"}
+        ]
+        combined_text = " ".join(
+            cell.get_text().get_text()
+            for ax in fig.axes
+            for table in ax.tables
+            for cell in table.get_celld().values()
+        )
+
+        self.assertNotIn("Position Summary", table_titles)
+        self.assertIn("Gamma Summary", table_titles)
+        self.assertNotIn("Point Gamma Summary", table_titles)
+        self.assertNotIn("Radial", combined_text)
+        self.assertIn("Gamma pass (%)", combined_text)
+        self.assertIn("Evaluated points", combined_text)
+        plt.close(fig)
+
+    def test_generate_point_gamma_summary_page_does_not_duplicate_bottom_summary_labels(self):
+        beam_data = self.point_gamma_report_data["Beam 1"]
+
+        fig = _generate_point_gamma_summary_page(
+            "Beam 1",
+            beam_data,
+            patient_id="12345",
+            patient_name="Test^Point",
+            analysis_config={
+                "GAMMA_FLUENCE_PERCENT_THRESHOLD": 5.0,
+                "GAMMA_DISTANCE_MM_THRESHOLD": 2.0,
+                "GAMMA_LOWER_PERCENT_FLUENCE_CUTOFF": 10.0,
+            },
+        )
+
+        analysis_ax = next(ax for ax in fig.axes if ax.get_title() == "Config / Info")
+        rendered_texts = [text.get_text() for text in analysis_ax.texts]
+        self.assertNotIn("Distance to agreement: 2.0 mm", rendered_texts)
+        self.assertNotIn("Count threshold: 5.0% of peak plan count", rendered_texts)
+        self.assertNotIn("Lower fluence cutoff: 10.0% of peak plan count", rendered_texts)
+        plt.close(fig)
+
+    def test_generate_point_gamma_summary_page_uses_horizontal_gamma_and_config_tables(self):
+        beam_data = self.point_gamma_report_data["Beam 1"]
+
+        fig = _generate_point_gamma_summary_page(
+            "Beam 1",
+            beam_data,
+            patient_id="12345",
+            patient_name="Test^Point",
+            analysis_config={
+                "GAMMA_FLUENCE_PERCENT_THRESHOLD": 5.0,
+                "GAMMA_DISTANCE_MM_THRESHOLD": 2.0,
+                "GAMMA_LOWER_PERCENT_FLUENCE_CUTOFF": 10.0,
+            },
+        )
+
+        gamma_ax = next(ax for ax in fig.axes if ax.get_title() == "Gamma Summary")
+        config_ax = next(ax for ax in fig.axes if ax.get_title() == "Config / Info")
+        gamma_table = next(iter(gamma_ax.tables))
+        config_table = next(iter(config_ax.tables))
+
+        gamma_rows = max(row for row, _ in gamma_table.get_celld().keys()) + 1
+        config_rows = max(row for row, _ in config_table.get_celld().keys()) + 1
+        gamma_text = " ".join(
+            cell.get_text().get_text()
+            for cell in gamma_table.get_celld().values()
+        )
+        config_text = " ".join(
+            cell.get_text().get_text()
+            for cell in config_table.get_celld().values()
+        )
+
+        self.assertEqual(2, gamma_rows)
+        self.assertEqual(2, config_rows)
+        self.assertIn("Gamma mean", gamma_text)
+        self.assertIn("Gamma max", gamma_text)
+        self.assertIn("Evaluated points", gamma_text)
+        self.assertIn("Distance to agreement", config_text)
+        self.assertIn("Count threshold", config_text)
+        self.assertIn("Lower fluence cutoff", config_text)
+        plt.close(fig)
+
+    def test_generate_point_gamma_summary_page_removes_bottom_right_panel(self):
+        beam_data = self.point_gamma_report_data["Beam 1"]
+
+        fig = _generate_point_gamma_summary_page(
+            "Beam 1",
+            beam_data,
+            patient_id="12345",
+            patient_name="Test^Point",
+            analysis_config={
+                "GAMMA_FLUENCE_PERCENT_THRESHOLD": 5.0,
+                "GAMMA_DISTANCE_MM_THRESHOLD": 2.0,
+                "GAMMA_LOWER_PERCENT_FLUENCE_CUTOFF": 10.0,
+            },
+        )
+
+        rendered_text = " ".join(
+            text.get_text()
+            for ax in fig.axes
+            for text in ax.texts
+        )
+        self.assertNotIn("Lowest Gamma Pass", rendered_text)
+        plt.close(fig)
+
+    def test_generate_point_gamma_summary_page_uses_gamma_pass_in_right_side_heatmap_column(self):
+        beam_data = self.point_gamma_report_data["Beam 1"]
+
+        fig = _generate_point_gamma_summary_page(
+            "Beam 1",
+            beam_data,
+            patient_id="12345",
+            patient_name="Test^Point",
+            analysis_config={
+                "GAMMA_FLUENCE_PERCENT_THRESHOLD": 5.0,
+                "GAMMA_DISTANCE_MM_THRESHOLD": 2.0,
+                "GAMMA_LOWER_PERCENT_FLUENCE_CUTOFF": 10.0,
+            },
+        )
+
+        heatmap_ax = next(ax for ax in fig.axes if len(ax.images) == 1 and ax.get_ylabel() == "Layer")
+        header_ax = next(
+            ax
+            for ax in fig.axes
+            if ax is not heatmap_ax and any(text.get_text() == "X" for text in ax.texts)
+        )
+        header_texts = [text.get_text() for text in header_ax.texts]
+        side_ax = next(
+            ax
+            for ax in fig.axes
+            if ax is not heatmap_ax and len(ax.images) == 1 and ax.get_ylabel() == ""
+        )
+
+        self.assertEqual((1, 6), np.asarray(heatmap_ax.images[0].get_array(), dtype=float).shape)
+        self.assertEqual((1, 1), np.asarray(side_ax.images[0].get_array(), dtype=float).shape)
+        self.assertIn("Gamma", header_texts)
+        self.assertNotIn("Flag", header_texts)
+        self.assertFalse(any(ax.get_title() == "Gamma Pass Ratio" for ax in fig.axes))
+        plt.close(fig)
+
+    def test_generate_report_writes_point_gamma_summary_and_detail_pdfs_when_detail_enabled(self):
+        summary_pdf = os.path.join(self.output_dir, "case123_summary.pdf")
+        detail_pdf = os.path.join(self.output_dir, "case123_detail.pdf")
+
+        generate_report(
+            self.point_gamma_report_data,
+            self.output_dir,
+            report_name="case123",
+            analysis_mode="point_gamma",
+            report_detail_pdf=True,
+            analysis_config={
+                "GAMMA_FLUENCE_PERCENT_THRESHOLD": 5.0,
+                "GAMMA_DISTANCE_MM_THRESHOLD": 2.0,
+                "GAMMA_LOWER_PERCENT_FLUENCE_CUTOFF": 10.0,
+            },
+        )
+
+        self.assertTrue(os.path.exists(summary_pdf))
+        self.assertTrue(os.path.exists(detail_pdf))
+
+    def test_generate_report_skips_point_gamma_detail_pdf_when_disabled(self):
+        summary_pdf = os.path.join(self.output_dir, "case124_summary.pdf")
+        detail_pdf = os.path.join(self.output_dir, "case124_detail.pdf")
+
+        generate_report(
+            self.point_gamma_report_data,
+            self.output_dir,
+            report_name="case124",
+            analysis_mode="point_gamma",
+            report_detail_pdf=False,
+            analysis_config={
+                "GAMMA_FLUENCE_PERCENT_THRESHOLD": 5.0,
+                "GAMMA_DISTANCE_MM_THRESHOLD": 2.0,
+                "GAMMA_LOWER_PERCENT_FLUENCE_CUTOFF": 10.0,
+            },
+        )
+
+        self.assertTrue(os.path.exists(summary_pdf))
+        self.assertFalse(os.path.exists(detail_pdf))
 
     def test_draw_layer_heatmap_renders_all_layers(self):
         fig = plt.figure(figsize=(6, 4))

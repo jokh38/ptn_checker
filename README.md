@@ -119,6 +119,7 @@ Application-level report and debug behavior is configured in `config.yaml`:
 ```yaml
 app:
   report_style_summary: true
+  report_detail_pdf: false
   export_pdf_report: true
   export_report_csv: false
   save_debug_csv: false
@@ -127,6 +128,7 @@ app:
 | Parameter | Description |
 |-----------|-------------|
 | `report_style_summary` | `true` selects the current summary PDF layout; `false` maps to the legacy detailed PDF layout |
+| `report_detail_pdf` | When `analysis_mode: point_gamma`, `true` generates an additional detailed PDF containing position comparison pages plus gamma analysis pages |
 | `export_pdf_report` | `true` to generate the PDF report, `false` to skip PDF generation |
 | `export_report_csv` | `true` to generate one per-beam layer-summary CSV for downstream programs |
 | `save_debug_csv` | `true` to generate per-layer debug CSV files with low-level sample data |

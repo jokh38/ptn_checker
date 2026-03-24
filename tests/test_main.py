@@ -92,6 +92,7 @@ class TestMain(unittest.TestCase):
         export_pdf_report=True,
         export_report_csv=False,
         save_debug_csv=False,
+        report_detail_pdf=False,
         zero_dose_enabled=False,
         zero_dose_report_mode="filtered",
     ):
@@ -108,6 +109,9 @@ class TestMain(unittest.TestCase):
             )
             f.write(
                 f"  save_debug_csv: {'true' if save_debug_csv else 'false'}\n"
+            )
+            f.write(
+                f"  report_detail_pdf: {'true' if report_detail_pdf else 'false'}\n"
             )
             f.write("zero_dose_filter:\n")
             f.write(f"  enabled: {'true' if zero_dose_enabled else 'false'}\n")
@@ -350,11 +354,10 @@ class TestMain(unittest.TestCase):
             "EXPORT_REPORT_CSV": False,
             "SAVE_DEBUG_CSV": False,
             "ZERO_DOSE_REPORT_MODE": "filtered",
-            "ANALYSIS_MODE": "gamma",
+            "ANALYSIS_MODE": "point_gamma",
             "GAMMA_FLUENCE_PERCENT_THRESHOLD": 3.0,
             "GAMMA_DISTANCE_MM_THRESHOLD": 2.0,
             "GAMMA_LOWER_PERCENT_FLUENCE_CUTOFF": 10.0,
-            "GAMMA_SPOT_TOLERANCE_MM": 1.5,
             "GAMMA_REQUIRE_PLANRANGE_MU_CORRECTION": True,
             "GAMMA_ALLOW_RELATIVE_FLUENCE_FALLBACK": False,
         }
@@ -364,10 +367,15 @@ class TestMain(unittest.TestCase):
             "gamma_mean": 0.0,
             "gamma_max": 0.0,
             "evaluated_point_count": 1,
-            "plan_fluence_max": 1.0,
-            "log_fluence_max": 1.0,
-            "normalization_mode": "primary",
-            "used_planrange_mu_correction": True,
+            "gamma_map": np.array([[0.0]]),
+            "plan_positions": np.array([[0.0, 0.0]]),
+            "log_positions": np.array([[0.0, 0.0]]),
+            "plan_grid": np.array([[0.0]]),
+            "log_grid": np.array([[0.0]]),
+            "position_error_mean_mm": 0.0,
+            "count_error_mean": 0.0,
+            "normalization_mode": "point_gamma",
+            "used_planrange_mu_correction": False,
             "unmatched_delivered_weight": 0.0,
         }
 
@@ -400,13 +408,246 @@ class TestMain(unittest.TestCase):
             side_effect=forbidden_trajectory_calculator,
         ), mock.patch.object(
             main,
-            "calculate_gamma_for_layer",
+            "calculate_point_gamma_for_layer",
             gamma_calculator_mock,
             create=True,
         ), mock.patch.object(main, "generate_report"):
             run_analysis(self.test_dir, self.dcm_file, output_dir)
 
         self.assertEqual(1, gamma_calculator_mock.call_count)
+
+    def test_run_analysis_routes_point_gamma_mode_to_point_gamma_calculator(self):
+        output_dir = os.path.join(self.test_dir, "output_point_gamma")
+        os.makedirs(output_dir)
+
+        plan_data = {
+            "patient_id": "123456",
+            "patient_name": "Test^PointGamma",
+            "machine_name": "G1",
+            "beams": {
+                1: {
+                    "name": "Beam 1",
+                    "layers": {
+                        0: {
+                            "time_axis_s": np.array([0.0, 0.00012, 0.00024]),
+                            "trajectory_x_mm": np.array([0.0, 2.0, 4.0]),
+                            "trajectory_y_mm": np.array([0.0, 0.0, 0.0]),
+                            "cumulative_mu": np.array([0.0, 2.0, 4.0]),
+                        }
+                    },
+                }
+            },
+        }
+
+        point_gamma_config = {
+            "REPORT_STYLE_SUMMARY": True,
+            "REPORT_STYLE": "summary",
+            "EXPORT_PDF_REPORT": True,
+            "EXPORT_REPORT_CSV": True,
+            "SAVE_DEBUG_CSV": False,
+            "REPORT_DETAIL_PDF": False,
+            "ZERO_DOSE_REPORT_MODE": "filtered",
+            "ANALYSIS_MODE": "point_gamma",
+            "GAMMA_FLUENCE_PERCENT_THRESHOLD": 5.0,
+            "GAMMA_DISTANCE_MM_THRESHOLD": 2.0,
+            "GAMMA_LOWER_PERCENT_FLUENCE_CUTOFF": 10.0,
+            "GAMMA_REQUIRE_PLANRANGE_MU_CORRECTION": True,
+            "GAMMA_ALLOW_RELATIVE_FLUENCE_FALLBACK": False,
+            "GAMMA_NORMALIZATION_FACTOR_BY_MACHINE": {"G1": 5.5e-7, "G2": 5.0e-7},
+        }
+
+        point_gamma_results = {
+            "pass_rate": 100.0,
+            "gamma_mean": 0.0,
+            "gamma_max": 0.0,
+            "evaluated_point_count": 3,
+            "gamma_map": np.array([[0.0, 0.0], [0.0, 0.0]]),
+            "plan_grid": np.array([[0.0, 1.0], [2.0, 3.0]]),
+            "log_grid": np.array([[0.0, 1.0], [2.0, 3.0]]),
+            "normalization_mode": "point_gamma",
+            "used_planrange_mu_correction": False,
+            "unmatched_delivered_weight": 0.0,
+        }
+
+        point_gamma_calculator_mock = mock.Mock(return_value=point_gamma_results)
+
+        with mock.patch.object(
+            main, "parse_yaml_config", return_value=point_gamma_config
+        ), mock.patch.object(
+            main, "load_plan_and_machine_config", return_value=(plan_data, {})
+        ), mock.patch.object(
+            main, "collect_ptn_delivery_groups",
+            return_value=[
+                {
+                    "source_dir": self.test_dir,
+                    "ptn_files": [os.path.join(self.test_dir, "point_gamma_layer.ptn")],
+                    "planrange_lookup": {},
+                    "beam_number": 1,
+                }
+            ],
+        ), mock.patch.object(
+            main,
+            "parse_ptn_with_optional_mu_correction",
+            return_value={
+                "time_ms": np.array([0.0, 0.06, 0.12]),
+                "x": np.array([0.0, 1.0, 2.0]),
+                "y": np.array([0.0, 0.0, 0.0]),
+                "dose1_au": np.array([0.0, 1.0, 1.0]),
+            },
+        ), mock.patch.object(
+            main,
+            "calculate_differences_for_layer",
+            side_effect=lambda *args, **kwargs: self.fail(
+                "point_gamma mode should not call the trajectory calculator"
+            ),
+        ), mock.patch.object(
+            main,
+            "calculate_point_gamma_for_layer",
+            point_gamma_calculator_mock,
+            create=True,
+        ), mock.patch.object(
+            main,
+            "generate_report"
+        ) as generate_report_mock, mock.patch.object(
+            main,
+            "export_report_csv",
+            create=True,
+        ) as csv_export_mock:
+            run_analysis(
+                self.test_dir,
+                self.dcm_file,
+                output_dir,
+                report_name="point_gamma_case",
+            )
+
+        self.assertEqual(1, point_gamma_calculator_mock.call_count)
+        self.assertEqual(1, generate_report_mock.call_count)
+        csv_export_mock.assert_not_called()
+        self.assertEqual(
+            "point_gamma_case",
+            generate_report_mock.call_args.kwargs["report_name"],
+        )
+        self.assertEqual(
+            "point_gamma",
+            generate_report_mock.call_args.kwargs["analysis_mode"],
+        )
+        self.assertFalse(
+            generate_report_mock.call_args.kwargs["report_detail_pdf"]
+        )
+
+    def test_run_analysis_routes_point_gamma_mode_to_summary_and_detail_reports_when_enabled(self):
+        output_dir = os.path.join(self.test_dir, "output_point_gamma_detail")
+        os.makedirs(output_dir)
+
+        plan_data = {
+            "patient_id": "123456",
+            "patient_name": "Test^PointGamma",
+            "machine_name": "G1",
+            "beams": {
+                1: {
+                    "name": "Beam 1",
+                    "layers": {
+                        0: {
+                            "time_axis_s": np.array([0.0, 0.00012, 0.00024]),
+                            "trajectory_x_mm": np.array([0.0, 2.0, 4.0]),
+                            "trajectory_y_mm": np.array([0.0, 0.0, 0.0]),
+                            "cumulative_mu": np.array([0.0, 2.0, 4.0]),
+                        }
+                    },
+                }
+            },
+        }
+
+        point_gamma_config = {
+            "REPORT_STYLE_SUMMARY": True,
+            "REPORT_STYLE": "summary",
+            "EXPORT_PDF_REPORT": True,
+            "EXPORT_REPORT_CSV": False,
+            "SAVE_DEBUG_CSV": False,
+            "REPORT_DETAIL_PDF": True,
+            "ZERO_DOSE_REPORT_MODE": "filtered",
+            "ANALYSIS_MODE": "point_gamma",
+            "GAMMA_FLUENCE_PERCENT_THRESHOLD": 5.0,
+            "GAMMA_DISTANCE_MM_THRESHOLD": 2.0,
+            "GAMMA_LOWER_PERCENT_FLUENCE_CUTOFF": 10.0,
+            "GAMMA_REQUIRE_PLANRANGE_MU_CORRECTION": True,
+            "GAMMA_ALLOW_RELATIVE_FLUENCE_FALLBACK": False,
+            "GAMMA_NORMALIZATION_FACTOR_BY_MACHINE": {"G1": 5.5e-7, "G2": 5.0e-7},
+        }
+
+        point_gamma_results = {
+            "pass_rate": 100.0,
+            "gamma_mean": 0.0,
+            "gamma_max": 0.0,
+            "evaluated_point_count": 3,
+            "gamma_map": np.array([[0.0, 0.0], [0.0, 0.0]]),
+            "plan_grid": np.array([[0.0, 1.0], [2.0, 3.0]]),
+            "log_grid": np.array([[0.0, 1.0], [2.0, 3.0]]),
+            "normalization_mode": "point_gamma",
+            "used_planrange_mu_correction": False,
+            "unmatched_delivered_weight": 0.0,
+        }
+
+        point_gamma_calculator_mock = mock.Mock(return_value=point_gamma_results)
+
+        with mock.patch.object(
+            main, "parse_yaml_config", return_value=point_gamma_config
+        ), mock.patch.object(
+            main, "load_plan_and_machine_config", return_value=(plan_data, {})
+        ), mock.patch.object(
+            main, "collect_ptn_delivery_groups",
+            return_value=[
+                {
+                    "source_dir": self.test_dir,
+                    "ptn_files": [os.path.join(self.test_dir, "point_gamma_layer.ptn")],
+                    "planrange_lookup": {},
+                    "beam_number": 1,
+                }
+            ],
+        ), mock.patch.object(
+            main,
+            "parse_ptn_with_optional_mu_correction",
+            return_value={
+                "time_ms": np.array([0.0, 0.06, 0.12]),
+                "x": np.array([0.0, 1.0, 2.0]),
+                "y": np.array([0.0, 0.0, 0.0]),
+                "dose1_au": np.array([0.0, 1.0, 1.0]),
+            },
+        ), mock.patch.object(
+            main,
+            "calculate_differences_for_layer",
+            side_effect=lambda *args, **kwargs: self.fail(
+                "point_gamma mode should not call the trajectory calculator"
+            ),
+        ), mock.patch.object(
+            main,
+            "calculate_point_gamma_for_layer",
+            point_gamma_calculator_mock,
+            create=True,
+        ), mock.patch.object(
+            main,
+            "generate_report",
+        ) as generate_report_mock, mock.patch.object(
+            main,
+            "export_report_csv",
+            create=True,
+        ) as csv_export_mock:
+            run_analysis(
+                self.test_dir,
+                self.dcm_file,
+                output_dir,
+                report_name="point_gamma_case",
+            )
+
+        self.assertEqual(1, point_gamma_calculator_mock.call_count)
+        self.assertEqual(1, generate_report_mock.call_count)
+        self.assertEqual("point_gamma_case", generate_report_mock.call_args.kwargs["report_name"])
+        self.assertEqual(
+            "point_gamma",
+            generate_report_mock.call_args.kwargs["analysis_mode"],
+        )
+        self.assertTrue(generate_report_mock.call_args.kwargs["report_detail_pdf"])
+        csv_export_mock.assert_not_called()
 
     def test_run_analysis_uses_machine_specific_gamma_normalization_factor(self):
         output_dir = os.path.join(self.test_dir, "output_gamma_factor")
@@ -440,12 +681,12 @@ class TestMain(unittest.TestCase):
             "EXPORT_PDF_REPORT": False,
             "EXPORT_REPORT_CSV": False,
             "SAVE_DEBUG_CSV": False,
+            "REPORT_DETAIL_PDF": False,
             "ZERO_DOSE_REPORT_MODE": "filtered",
-            "ANALYSIS_MODE": "gamma",
+            "ANALYSIS_MODE": "point_gamma",
             "GAMMA_FLUENCE_PERCENT_THRESHOLD": 5.0,
             "GAMMA_DISTANCE_MM_THRESHOLD": 2.0,
             "GAMMA_LOWER_PERCENT_FLUENCE_CUTOFF": 10.0,
-            "GAMMA_SPOT_TOLERANCE_MM": 1.5,
             "GAMMA_REQUIRE_PLANRANGE_MU_CORRECTION": True,
             "GAMMA_ALLOW_RELATIVE_FLUENCE_FALLBACK": False,
             "GAMMA_NORMALIZATION_FACTOR_BY_MACHINE": {"G1": 5.5e-7, "G2": 5.0e-7},
@@ -456,10 +697,15 @@ class TestMain(unittest.TestCase):
             "gamma_mean": 0.0,
             "gamma_max": 0.0,
             "evaluated_point_count": 1,
-            "plan_fluence_max": 1.0,
-            "log_fluence_max": 1.0,
-            "normalization_mode": "primary",
-            "used_planrange_mu_correction": True,
+            "gamma_map": np.array([[0.0]]),
+            "plan_positions": np.array([[0.0, 0.0]]),
+            "log_positions": np.array([[0.0, 0.0]]),
+            "plan_grid": np.array([[0.0]]),
+            "log_grid": np.array([[0.0]]),
+            "position_error_mean_mm": 0.0,
+            "count_error_mean": 0.0,
+            "normalization_mode": "point_gamma",
+            "used_planrange_mu_correction": False,
             "unmatched_delivered_weight": 0.0,
         }
 
@@ -485,7 +731,7 @@ class TestMain(unittest.TestCase):
             return_value={"time_ms": np.array([0.0]), "x": np.array([0.0]), "y": np.array([0.0])},
         ), mock.patch.object(
             main,
-            "calculate_gamma_for_layer",
+            "calculate_point_gamma_for_layer",
             gamma_calculator_mock,
             create=True,
         ), mock.patch.object(main, "generate_report"):
@@ -526,17 +772,14 @@ class TestMain(unittest.TestCase):
             "EXPORT_PDF_REPORT": True,
             "EXPORT_REPORT_CSV": False,
             "SAVE_DEBUG_CSV": False,
+            "REPORT_DETAIL_PDF": True,
             "ZERO_DOSE_REPORT_MODE": "filtered",
-            "ANALYSIS_MODE": "gamma",
+            "ANALYSIS_MODE": "point_gamma",
             "GAMMA_FLUENCE_PERCENT_THRESHOLD": 3.0,
             "GAMMA_DISTANCE_MM_THRESHOLD": 2.0,
             "GAMMA_LOWER_PERCENT_FLUENCE_CUTOFF": 10.0,
-            "GAMMA_SPOT_TOLERANCE_MM": 1.5,
             "GAMMA_REQUIRE_PLANRANGE_MU_CORRECTION": True,
             "GAMMA_ALLOW_RELATIVE_FLUENCE_FALLBACK": False,
-            "GAMMA_USE_GAUSSIAN_SPOT_MODEL": False,
-            "GAMMA_GAUSSIAN_SIGMA_MM": 3.0,
-            "GAMMA_MAP_MARGIN_MM": 0.0,
         }
 
         gamma_results = {
@@ -544,17 +787,19 @@ class TestMain(unittest.TestCase):
             "gamma_mean": 0.0,
             "gamma_max": 0.0,
             "evaluated_point_count": 1,
-            "plan_fluence_max": 1.0,
-            "log_fluence_max": 1.0,
-            "normalization_mode": "primary",
-            "used_planrange_mu_correction": True,
+            "gamma_map": np.array([[0.0]]),
+            "plan_positions": np.array([[0.0, 0.0]]),
+            "log_positions": np.array([[0.0, 0.0]]),
+            "plan_grid": np.array([[0.0]]),
+            "log_grid": np.array([[0.0]]),
+            "position_error_mean_mm": 0.0,
+            "count_error_mean": 0.0,
+            "normalization_mode": "point_gamma",
+            "used_planrange_mu_correction": False,
             "unmatched_delivered_weight": 0.0,
         }
 
         gamma_calculator_mock = mock.Mock(return_value=gamma_results)
-        gamma_pdf_mock = mock.Mock()
-        trajectory_pdf_mock = mock.Mock()
-
         with mock.patch.object(
             main, "parse_yaml_config", return_value=gamma_config
         ), mock.patch.object(
@@ -575,19 +820,24 @@ class TestMain(unittest.TestCase):
             return_value={"time_ms": np.array([0.0]), "x": np.array([0.0]), "y": np.array([0.0])},
         ), mock.patch.object(
             main,
-            "calculate_gamma_for_layer",
+            "calculate_point_gamma_for_layer",
             gamma_calculator_mock,
             create=True,
-        ), mock.patch.object(
-            main,
-            "generate_gamma_report",
-            gamma_pdf_mock,
-            create=True,
-        ), mock.patch.object(main, "generate_report", trajectory_pdf_mock):
-            run_analysis(self.test_dir, self.dcm_file, output_dir)
+        ), mock.patch.object(main, "generate_report") as generate_report_mock:
+            run_analysis(
+                self.test_dir,
+                self.dcm_file,
+                output_dir,
+                report_name="point_gamma_case",
+            )
 
-        gamma_pdf_mock.assert_called_once()
-        trajectory_pdf_mock.assert_not_called()
+        self.assertEqual(1, generate_report_mock.call_count)
+        self.assertEqual("point_gamma_case", generate_report_mock.call_args.kwargs["report_name"])
+        self.assertEqual(
+            "point_gamma",
+            generate_report_mock.call_args.kwargs["analysis_mode"],
+        )
+        self.assertTrue(generate_report_mock.call_args.kwargs["report_detail_pdf"])
 
     def test_run_analysis_matches_single_delivery_to_beam_by_layer_count(self):
         log_dir = os.path.join(self.test_dir, "single_delivery")
