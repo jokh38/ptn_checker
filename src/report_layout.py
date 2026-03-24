@@ -881,7 +881,6 @@ def _generate_point_gamma_summary_page(
     ax_trend_title.text(0.5, 0.5, "Layer Trend", ha="center", va="center", fontsize=9, fontweight="bold", transform=ax_trend_title.transAxes)
     ax_err = fig.add_subplot(left_gs[1:, 0])
     layer_idx = np.arange(1, num_layers + 1)
-    worst_axis_error = np.maximum(np.array(max_x_all), np.array(max_y_all))
     y_x = layer_idx - 0.16
     y_y = layer_idx + 0.16
     ax_err.errorbar(mean_x_all, y_x, xerr=std_x_all, fmt="o", markersize=3.5, linewidth=1.0, capsize=2.5, color="#1f77b4", ecolor="#1f77b4", label="X mean ± std", zorder=3)
@@ -951,92 +950,4 @@ def _generate_point_gamma_summary_page(
         ax_filter,
         analysis_config,
     )
-    return fig
-
-
-def _generate_executive_summary(report_data, patient_id, patient_name, report_mode):
-    from datetime import date as _date
-
-    fig = plt.figure(figsize=A4_FIGSIZE)
-    fig.text(0.50, 0.97, "Executive Summary", ha="center", va="top", fontsize=18, fontweight="bold")
-    fig.text(0.50, 0.935, f"Patient ID: {patient_id}    |    Name: {patient_name}    |    Date: {_date.today().isoformat()}", ha="center", va="top", fontsize=9, color="#555555")
-
-    beam_rows = []
-    fraction_passed = 0
-    fraction_total = 0
-    for beam_name, beam_data in report_data.items():
-        if beam_name.startswith("_"):
-            continue
-        layers_data = beam_data.get("layers", [])
-        if not layers_data:
-            continue
-        passed_spots = 0
-        total_spots = 0
-        mean_x_vals = []
-        mean_y_vals = []
-        max_err_vals = []
-        for layer in layers_data:
-            results = layer.get("results", {})
-            mean_x_vals.append(_metric_value(results, "mean_diff_x", report_mode))
-            mean_y_vals.append(_metric_value(results, "mean_diff_y", report_mode))
-            max_err_vals.append(max(_metric_value(results, "max_abs_diff_x", report_mode), _metric_value(results, "max_abs_diff_y", report_mode)))
-            lp, lt = _spot_pass_summary(results, report_mode=report_mode)
-            passed_spots += lp
-            total_spots += lt
-        pass_rate = passed_spots / total_spots * 100 if total_spots > 0 else 0
-        verdict, color = _beam_verdict(pass_rate)
-        beam_rows.append({
-            "name": beam_name,
-            "layers": len(layers_data),
-            "pass_rate": pass_rate,
-            "passed": passed_spots,
-            "total": total_spots,
-            "mean_x": np.mean(mean_x_vals) if mean_x_vals else 0,
-            "mean_y": np.mean(mean_y_vals) if mean_y_vals else 0,
-            "max_err": max(max_err_vals) if max_err_vals else 0,
-            "verdict": verdict,
-            "color": color,
-        })
-        fraction_passed += passed_spots
-        fraction_total += total_spots
-
-    fraction_rate = fraction_passed / fraction_total * 100 if fraction_total > 0 else 0
-    fraction_verdict, fraction_color = _beam_verdict(fraction_rate)
-    fig.text(
-        0.50, 0.905,
-        f"{fraction_verdict}  ({fraction_passed}/{fraction_total} spots, {fraction_rate:.0f}%)",
-        ha="center", va="top", fontsize=13, fontweight="bold", color="white",
-        bbox=dict(boxstyle="round,pad=0.4", facecolor=fraction_color, edgecolor="none"),
-    )
-
-    ax_tbl = fig.add_axes([0.06, 0.40, 0.88, 0.48])
-    ax_tbl.axis("off")
-    col_labels = ["Beam", "Layers", "Pass Rate", "Mean X (mm)", "Mean Y (mm)", "Max |err| (mm)", "Verdict"]
-    table_rows = [[
-        beam["name"],
-        str(beam["layers"]),
-        f"{beam['passed']}/{beam['total']} ({beam['pass_rate']:.0f}%)",
-        f"{beam['mean_x']:+.3f}",
-        f"{beam['mean_y']:+.3f}",
-        f"{beam['max_err']:.3f}",
-        beam["verdict"],
-    ] for beam in beam_rows]
-    if not table_rows:
-        ax_tbl.text(0.5, 0.5, "No beam data available", ha="center", va="center", fontsize=12)
-        return fig
-
-    table = ax_tbl.table(cellText=table_rows, colLabels=col_labels, loc="upper center", cellLoc="center")
-    table.auto_set_font_size(False)
-    num_beams = len(table_rows)
-    table.set_fontsize(9 if num_beams <= 6 else (7 if num_beams <= 12 else 6))
-    table.scale(1.0, min(2.5, max(1.2, 14.0 / (num_beams + 1))))
-    for idx in range(len(col_labels)):
-        table[0, idx].set_facecolor("#34495e")
-        table[0, idx].set_text_props(color="white", fontweight="bold")
-    for row_idx, beam in enumerate(beam_rows, start=1):
-        table[row_idx, 6].set_facecolor(beam["color"])
-        table[row_idx, 6].set_text_props(color="white", fontweight="bold")
-        table[row_idx, 2].set_facecolor("#d5f5e3" if beam["pass_rate"] == 100 else "#fdebd0" if beam["pass_rate"] >= 80 else "#fadbd8")
-
-    fig.text(0.50, 0.37, f"Report mode: {report_mode}    |    Thresholds: Mean \u2264{THRESHOLDS['mean_diff_mm']} mm, Std \u2264{THRESHOLDS['std_diff_mm']} mm, Max \u2264{THRESHOLDS['max_abs_diff_mm']} mm", ha="center", va="top", fontsize=7, color="#888888")
     return fig

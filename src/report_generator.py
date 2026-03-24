@@ -7,15 +7,12 @@ from matplotlib.backends.backend_pdf import PdfPages
 
 from src.report_constants import A4_FIGSIZE, POSITION_PLOT_FIGSIZE
 from src.report_layout import (
-    _beam_verdict,
     _draw_analysis_info_panel,
     _draw_layer_heatmap,
-    _generate_executive_summary,
     _generate_point_gamma_summary_page,
     _generate_summary_page,
 )
 from src.report_metrics import (
-    THRESHOLDS,
     layer_passes as _layer_passes,
     metric_value as _metric_value,
     spot_pass_summary as _spot_pass_summary,

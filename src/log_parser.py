@@ -191,10 +191,6 @@ def parse_ptn_file(file_path: str, config_params: dict) -> dict:
     time_column = np.arange(num_rows, dtype=np.float32) * time_gain
     time_column = time_column.reshape(-1, 1)
 
-    # 7. Combine Time and Data
-    # Columns: Time, RawX, RawY, RawXSize, RawYSize, Dose1, Dose2, LayerNum, BeamOnOff
-    data_with_time = np.hstack((time_column, data_2d_float))
-
     raw_y_col = data_2d_float[:, 1]
     beam_on_off_col = data_2d_float[:, 7]
     ypos_offset = float(config_params['YPOSOFFSET'])

@@ -8,7 +8,7 @@ THRESHOLDS = {
 }
 
 
-def metric_key(results: dict, base_key: str, report_mode: str) -> str:
+def _metric_key(results: dict, base_key: str, report_mode: str) -> str:
     """Resolve the raw or filtered metric key for the requested report mode."""
     if report_mode != "raw":
         filtered_key = f"filtered_{base_key}"
@@ -19,7 +19,7 @@ def metric_key(results: dict, base_key: str, report_mode: str) -> str:
 
 def metric_value(results: dict, base_key: str, report_mode: str):
     """Return the metric value selected by ``report_mode`` with a zero fallback."""
-    return results.get(metric_key(results, base_key, report_mode), 0)
+    return results.get(_metric_key(results, base_key, report_mode), 0)
 
 
 def layer_passes(results: dict, report_mode: str = "raw") -> bool:
@@ -47,8 +47,8 @@ def layer_passes(results: dict, report_mode: str = "raw") -> bool:
 
 def spot_pass_summary(results: dict, report_mode: str = "raw") -> tuple[int, int]:
     """Count spots whose per-spot sample stats satisfy the layer thresholds."""
-    diff_x_key = metric_key(results, "diff_x", report_mode)
-    diff_y_key = metric_key(results, "diff_y", report_mode)
+    diff_x_key = _metric_key(results, "diff_x", report_mode)
+    diff_y_key = _metric_key(results, "diff_y", report_mode)
     assigned_spot_index = results.get("assigned_spot_index")
     if (
         diff_x_key not in results
