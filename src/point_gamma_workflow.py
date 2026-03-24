@@ -1,5 +1,12 @@
 import numpy as np
 
+from src.calculator import (
+    _assign_samples_to_spots,
+    _boundary_carryover_mask,
+    _detect_settling,
+    _normalized_spot_series,
+)
+
 
 FIXED_SAMPLE_INTERVAL_S = 60e-6
 DIRECT_GAMMA_MAP_RESOLUTION_MM = 0.5
@@ -134,7 +141,82 @@ def _build_direct_gamma_map(x_mm, y_mm, gamma_values, *, resolution_mm=DIRECT_GA
     return gamma_map
 
 
-def _calculate_direct_gamma_results(aligned, config):
+def _build_analysis_sample_masks(plan_layer, aligned, config):
+    time_s = np.asarray(aligned["time_s"], dtype=float)
+    plan_x = np.asarray(aligned["plan_x"], dtype=float)
+    plan_y = np.asarray(aligned["plan_y"], dtype=float)
+    log_x = np.asarray(aligned["log_x"], dtype=float)
+    log_y = np.asarray(aligned["log_y"], dtype=float)
+    plan_time_s = np.asarray(plan_layer.get("time_axis_s", []), dtype=float)
+
+    if time_s.size == 0 or plan_x.size == 0 or plan_y.size == 0:
+        empty_bool = np.zeros(0, dtype=bool)
+        empty_int = np.zeros(0, dtype=int)
+        empty_float = np.zeros(0, dtype=float)
+        return {
+            "settling_index": 0,
+            "settling_status": "insufficient_data",
+            "is_settling": empty_bool,
+            "settled_mask": empty_bool,
+            "assigned_spot_index": empty_int,
+            "assigned_spot_mu": empty_float,
+            "assigned_spot_scan_speed_mm_s": empty_float,
+            "sample_is_transit_min_dose": empty_bool,
+            "sample_is_boundary_carryover": empty_bool,
+            "analysis_mask": empty_bool,
+            "num_filtered_samples": 0,
+        }
+
+    config = config or {}
+    settling_index, settling_status = _detect_settling(
+        log_x,
+        log_y,
+        time_s,
+        target_x=plan_x[0],
+        target_y=plan_y[0],
+        threshold=config.get("SETTLING_THRESHOLD_MM", 0.5),
+        consecutive=config.get("SETTLING_CONSECUTIVE_SAMPLES", 10),
+    )
+    is_settling = np.arange(time_s.size) < settling_index
+    settled_mask = ~is_settling
+
+    assigned_spot_index = _assign_samples_to_spots(time_s, plan_time_s)
+    spot_mu, spot_is_transit_min_dose, spot_scan_speed_mm_s = _normalized_spot_series(
+        plan_layer,
+        plan_time_s,
+    )
+    sample_is_transit_min_dose = spot_is_transit_min_dose[assigned_spot_index]
+    sample_is_boundary_carryover = _boundary_carryover_mask(
+        config,
+        plan_time_s,
+        time_s,
+        assigned_spot_index,
+        spot_is_transit_min_dose,
+    )
+    zero_dose_filter_enabled = bool(config.get("ZERO_DOSE_FILTER_ENABLED", False))
+    filtered_mask = (
+        settled_mask
+        & (~sample_is_transit_min_dose)
+        & (~sample_is_boundary_carryover)
+    )
+    analysis_mask = filtered_mask if zero_dose_filter_enabled else settled_mask.copy()
+
+    return {
+        "settling_index": int(settling_index),
+        "settling_status": settling_status,
+        "is_settling": is_settling,
+        "settled_mask": settled_mask,
+        "assigned_spot_index": assigned_spot_index,
+        "assigned_spot_mu": spot_mu[assigned_spot_index],
+        "assigned_spot_scan_speed_mm_s": spot_scan_speed_mm_s[assigned_spot_index],
+        "sample_is_transit_min_dose": sample_is_transit_min_dose,
+        "sample_is_boundary_carryover": sample_is_boundary_carryover,
+        "analysis_mask": analysis_mask,
+        "num_filtered_samples": int(np.sum(settled_mask & (~filtered_mask))),
+    }
+
+
+def _calculate_direct_gamma_results(aligned, config, analysis_mask=None):
     plan_count = np.asarray(aligned["plan_count"], dtype=float)
     log_count = np.asarray(aligned["log_count"], dtype=float)
     plan_x = np.asarray(aligned["plan_x"], dtype=float)
@@ -158,7 +240,11 @@ def _calculate_direct_gamma_results(aligned, config):
     count_error = log_count - plan_count
     peak_plan_count = float(np.max(plan_count)) if plan_count.size else 0.0
     cutoff = peak_plan_count * float(config["GAMMA_LOWER_PERCENT_FLUENCE_CUTOFF"]) / 100.0
-    evaluated = plan_count >= cutoff
+    if analysis_mask is None:
+        analysis_mask = np.ones_like(plan_count, dtype=bool)
+    else:
+        analysis_mask = np.asarray(analysis_mask, dtype=bool)
+    evaluated = analysis_mask & (plan_count >= cutoff)
 
     if not np.any(evaluated):
         return {
@@ -205,7 +291,12 @@ def calculate_point_gamma_for_layer(plan_layer, log_data, config):
         return {"error": "Point gamma analysis requires time-aligned log samples"}
 
     aligned = _build_time_aligned_series(plan_layer, log_data, config)
-    results = _calculate_direct_gamma_results(aligned, config)
+    analysis_masks = _build_analysis_sample_masks(plan_layer, aligned, config)
+    results = _calculate_direct_gamma_results(
+        aligned,
+        config,
+        analysis_mask=analysis_masks["analysis_mask"],
+    )
     diff_x = np.asarray(aligned["log_x"], dtype=float) - np.asarray(aligned["plan_x"], dtype=float)
     diff_y = np.asarray(aligned["log_y"], dtype=float) - np.asarray(aligned["plan_y"], dtype=float)
     abs_diff_x = np.abs(diff_x)
@@ -224,6 +315,18 @@ def calculate_point_gamma_for_layer(plan_layer, log_data, config):
             "max_abs_diff_y": float(np.max(abs_diff_y)) if abs_diff_y.size else 0.0,
             "p95_abs_diff_x": float(np.percentile(abs_diff_x, 95)) if abs_diff_x.size else 0.0,
             "p95_abs_diff_y": float(np.percentile(abs_diff_y, 95)) if abs_diff_y.size else 0.0,
+            "is_settling": analysis_masks["is_settling"],
+            "settling_index": analysis_masks["settling_index"],
+            "settling_samples_count": int(np.sum(analysis_masks["is_settling"])),
+            "settling_status": analysis_masks["settling_status"],
+            "assigned_spot_index": analysis_masks["assigned_spot_index"],
+            "assigned_spot_mu": analysis_masks["assigned_spot_mu"],
+            "assigned_spot_scan_speed_mm_s": analysis_masks["assigned_spot_scan_speed_mm_s"],
+            "sample_is_transit_min_dose": analysis_masks["sample_is_transit_min_dose"],
+            "sample_is_boundary_carryover": analysis_masks["sample_is_boundary_carryover"],
+            "sample_is_included_filtered_stats": analysis_masks["analysis_mask"],
+            "num_filtered_samples": analysis_masks["num_filtered_samples"],
+            "num_included_samples": int(np.sum(analysis_masks["analysis_mask"])),
             "plan_positions": np.column_stack((aligned["plan_x"], aligned["plan_y"])),
             "log_positions": np.column_stack((aligned["log_x"], aligned["log_y"])),
             "plan_grid": np.vstack((aligned["plan_x"], aligned["plan_y"], aligned["plan_count"])),

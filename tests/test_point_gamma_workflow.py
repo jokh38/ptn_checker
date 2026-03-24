@@ -119,6 +119,70 @@ class TestPointGammaWorkflow(unittest.TestCase):
         self.assertGreater(results["diff_x"].size, 0)
         self.assertGreater(results["diff_y"].size, 0)
 
+    def test_calculate_point_gamma_for_layer_excludes_settling_samples(self):
+        plan_layer = {
+            "time_axis_s": np.array([0.0, 0.00006, 0.00012, 0.00018], dtype=float),
+            "trajectory_x_mm": np.zeros(4, dtype=float),
+            "trajectory_y_mm": np.zeros(4, dtype=float),
+            "cumulative_mu": np.array([0.0, 1.0, 2.0, 3.0], dtype=float),
+        }
+        log_data = {
+            "time_ms": np.array([0.0, 0.06, 0.12, 0.18], dtype=float),
+            "x_mm": np.array([5.0, 5.0, 0.0, 0.0], dtype=float),
+            "y_mm": np.zeros(4, dtype=float),
+            "dose1_au": np.array([0.0, 1.0, 1.0, 1.0], dtype=float),
+        }
+        config = {
+            "GAMMA_FLUENCE_PERCENT_THRESHOLD": 5.0,
+            "GAMMA_DISTANCE_MM_THRESHOLD": 2.0,
+            "GAMMA_LOWER_PERCENT_FLUENCE_CUTOFF": 0.0,
+            "GAMMA_NORMALIZATION_FACTOR": 1.0,
+            "SETTLING_THRESHOLD_MM": 0.5,
+            "SETTLING_CONSECUTIVE_SAMPLES": 2,
+            "ZERO_DOSE_FILTER_ENABLED": False,
+        }
+
+        results = calculate_point_gamma_for_layer(plan_layer, log_data, config)
+
+        self.assertEqual(2, results["settling_samples_count"])
+        self.assertEqual(2, results["evaluated_point_count"])
+        self.assertAlmostEqual(1.0, results["pass_rate"])
+
+    def test_calculate_point_gamma_for_layer_excludes_zero_dose_boundary_samples(self):
+        plan_layer = {
+            "time_axis_s": np.array([0.0, 0.00006, 0.00012], dtype=float),
+            "trajectory_x_mm": np.zeros(3, dtype=float),
+            "trajectory_y_mm": np.zeros(3, dtype=float),
+            "cumulative_mu": np.array([0.0, 1.0, 2.0], dtype=float),
+            "mu": np.array([0.0, 1.0, 1.0], dtype=float),
+            "spot_is_transit_min_dose": np.array([True, False, False], dtype=bool),
+            "spot_scan_speed_mm_s": np.array([25000.0, 0.0, 0.0], dtype=float),
+        }
+        log_data = {
+            "time_ms": np.array([0.0, 0.06, 0.12], dtype=float),
+            "x_mm": np.array([0.0, 4.0, 0.0], dtype=float),
+            "y_mm": np.zeros(3, dtype=float),
+            "dose1_au": np.array([0.0, 1.0, 1.0], dtype=float),
+        }
+        config = {
+            "GAMMA_FLUENCE_PERCENT_THRESHOLD": 5.0,
+            "GAMMA_DISTANCE_MM_THRESHOLD": 2.0,
+            "GAMMA_LOWER_PERCENT_FLUENCE_CUTOFF": 0.0,
+            "GAMMA_NORMALIZATION_FACTOR": 1.0,
+            "SETTLING_THRESHOLD_MM": 10.0,
+            "SETTLING_CONSECUTIVE_SAMPLES": 1,
+            "ZERO_DOSE_FILTER_ENABLED": True,
+            "ZERO_DOSE_BOUNDARY_HOLDOFF_S": 0.0,
+            "ZERO_DOSE_POST_MINIMAL_DOSE_BOUNDARY_S": 0.001,
+        }
+
+        results = calculate_point_gamma_for_layer(plan_layer, log_data, config)
+
+        self.assertEqual(0, results["settling_samples_count"])
+        self.assertEqual(1, results["evaluated_point_count"])
+        self.assertEqual(2, results["num_filtered_samples"])
+        self.assertAlmostEqual(1.0, results["pass_rate"])
+
 
 if __name__ == "__main__":
     unittest.main()
