@@ -15,11 +15,20 @@ from src.report_generator import generate_report
 from src.report_csv_exporter import export_report_csv
 from src.config_loader import parse_yaml_config
 from src.planrange_parser import parse_planrange_for_directory
-from src.ptn_discovery import find_ptn_files as discover_ptn_files
-
 logger = logging.getLogger(__name__)
-# Keep this module-level alias for existing tests and callers.
-find_ptn_files = discover_ptn_files
+
+
+def find_ptn_files(directory: str, *, sort_paths: bool = False) -> list[str]:
+    """Return PTN files under ``directory`` with optional deterministic ordering."""
+    ptn_files = []
+    for root, _, files in os.walk(directory):
+        for file_name in files:
+            if file_name.endswith(".ptn"):
+                ptn_files.append(os.path.join(root, file_name))
+
+    if sort_paths:
+        return sorted(ptn_files)
+    return ptn_files
 
 
 def _analysis_mode(config):
@@ -70,7 +79,7 @@ def collect_ptn_delivery_groups(log_dir):
         key=os.path.basename,
     )
     for subdir in subdirs:
-        ptn_files = sorted(discover_ptn_files(subdir))
+        ptn_files = sorted(find_ptn_files(subdir))
         if not ptn_files:
             continue
         groups.append(

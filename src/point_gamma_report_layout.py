@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-from src.report_constants import A4_FIGSIZE
+A4_FIGSIZE = (8.27, 11.69)
 
 
 def _gamma_percent(value):

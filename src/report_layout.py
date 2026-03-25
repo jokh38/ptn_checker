@@ -3,123 +3,17 @@ from matplotlib.colors import Normalize
 import numpy as np
 from scipy.stats import pearsonr
 
-from src.report_constants import A4_FIGSIZE
+A4_FIGSIZE = (8.27, 11.69)
+
 from src.report_metrics import (
     THRESHOLDS,
     layer_passes as _layer_passes,
     metric_value as _metric_value,
     spot_pass_summary as _spot_pass_summary,
 )
-
-
-def _beam_verdict(pass_rate):
-    if pass_rate == 100:
-        return "PASS", "#2ecc71"
-    if pass_rate >= 80:
-        return "CONDITIONAL", "#e67e22"
-    return "FAIL", "#e74c3c"
-
-
-def _draw_analysis_info_panel(ax, layers_data, report_mode, analysis_config=None):
-    cfg = analysis_config or {}
-    total_samples = 0
-    settled_samples = 0
-    included_samples = 0
-    filtered_out_samples = 0
-
-    for layer in layers_data:
-        results = layer.get("results", {})
-        diff_x = results.get("diff_x")
-        if diff_x is None:
-            continue
-        sample_count = len(np.asarray(diff_x))
-        total_samples += sample_count
-        settling_count = results.get("settling_samples_count", 0)
-        settled_samples += (sample_count - settling_count)
-        if report_mode != "raw":
-            included_samples += results.get("num_included_samples", 0)
-            filtered_out_samples += results.get("num_filtered_samples", 0)
-        else:
-            included_samples += (sample_count - settling_count)
-
-    table_data = [
-        ["\u2500 Criteria \u2500", ""],
-        ["Mean |diff|", f"\u2264 {THRESHOLDS['mean_diff_mm']:.1f} mm"],
-        ["Std diff", f"\u2264 {THRESHOLDS['std_diff_mm']:.1f} mm"],
-        ["Max |diff|", f"\u2264 {THRESHOLDS['max_abs_diff_mm']:.1f} mm"],
-    ]
-    settle_thresh = cfg.get("SETTLING_THRESHOLD_MM")
-    settle_consec = cfg.get("SETTLING_CONSECUTIVE_SAMPLES")
-    settle_window = cfg.get("SETTLING_WINDOW_SAMPLES")
-    if settle_thresh is not None:
-        table_data.append(["\u2500 Settling \u2500", ""])
-        table_data.append(["Threshold", f"{settle_thresh:.2f} mm"])
-        if settle_consec is not None:
-            table_data.append(["Consec. samples", f"{int(settle_consec)}"])
-        if settle_window is not None:
-            table_data.append(["Window samples", f"{int(settle_window)}"])
-
-    zd_enabled = cfg.get("ZERO_DOSE_FILTER_ENABLED")
-    if zd_enabled is not None:
-        table_data.append(["\u2500 Zero-dose \u2500", ""])
-        table_data.append(["Filter", "Enabled" if zd_enabled else "Disabled"])
-        if zd_enabled:
-            zd_max_mu = cfg.get("ZERO_DOSE_MAX_MU")
-            if zd_max_mu is not None:
-                table_data.append(["Max MU", f"{zd_max_mu:.4f}"])
-            zd_holdoff = cfg.get("ZERO_DOSE_BOUNDARY_HOLDOFF_S")
-            if zd_holdoff is not None:
-                table_data.append(["Boundary holdoff", f"{zd_holdoff:.4f} s"])
-            zd_report = cfg.get("ZERO_DOSE_REPORT_MODE")
-            if zd_report is not None:
-                table_data.append(["Report mode", str(zd_report)])
-
-    table_data.extend([
-        ["\u2500 Samples \u2500", ""],
-        ["Total", f"{total_samples:,}"],
-        ["After settling", f"{settled_samples:,}"],
-    ])
-    if report_mode != "raw":
-        table_data.append(["Filtered out", f"{filtered_out_samples:,}"])
-    table_data.append(["Included", f"{included_samples:,}"])
-
-    ax.set_title("Analysis Info", fontsize=8, fontweight="bold", pad=4)
-    tbl = ax.table(
-        cellText=table_data,
-        colLabels=["Parameter", "Value"],
-        loc="upper center",
-        cellLoc="left",
-        colWidths=[0.55, 0.45],
-    )
-    tbl.auto_set_font_size(False)
-    num_rows = len(table_data)
-    tbl_fontsize = 6.0 if num_rows > 14 else 6.5
-    tbl.set_fontsize(tbl_fontsize)
-    row_scale = min(1.4, max(0.7, 12.0 / (num_rows + 1)))
-    tbl.scale(1.0, row_scale)
-
-    for col_idx in range(2):
-        tbl[0, col_idx].set_facecolor("#34495e")
-        tbl[0, col_idx].set_text_props(color="white", fontweight="bold", fontsize=tbl_fontsize)
-
-    for row_idx, row in enumerate(table_data, start=1):
-        if row[0].startswith("\u2500"):
-            for col_idx in range(2):
-                tbl[row_idx, col_idx].set_facecolor("#5d6d7e")
-                tbl[row_idx, col_idx].set_text_props(
-                    color="white",
-                    fontweight="bold" if col_idx == 0 else None,
-                    fontsize=tbl_fontsize,
-                )
-        else:
-            tbl[row_idx, 0].set_text_props(fontweight="bold")
-            tbl[row_idx, 0].set_facecolor("#f8f8f8")
-            tbl[row_idx, 1].set_facecolor("white")
-
-
-def _gamma_percent(value):
-    numeric = float(value)
-    return numeric * 100.0 if numeric <= 1.0 else numeric
+from src.point_gamma_report_layout import (
+    _gamma_percent,
+)
 
 
 def _style_header_table(tbl, *, header_rows=None, fontsize=6.0):
@@ -373,31 +267,6 @@ def _draw_gamma_summary_table(
         tbl[1, col_idx].set_facecolor("white")
 
 
-def _layer_flag_codes(flag_rows, num_layers):
-    if num_layers <= 0:
-        return [], []
-    priority = [
-        ("Fail", "FAIL", 4),
-        ("Settle", "NS", 3),
-        ("Overlap", "OV", 2),
-        ("Fallback", "FB", 1),
-    ]
-    codes = []
-    values = []
-    for layer_idx in range(num_layers):
-        code = ""
-        value = 0
-        for row_name, row_code, row_value in priority:
-            row = flag_rows.get(row_name) if flag_rows else None
-            if row is not None and layer_idx < len(row) and bool(row[layer_idx]):
-                code = row_code
-                value = row_value
-                break
-        codes.append(code)
-        values.append(value)
-    return codes, values
-
-
 def _draw_layer_heatmap(
     fig,
     title_ax,
@@ -408,9 +277,7 @@ def _draw_layer_heatmap(
     heatmap_values,
     layer_labels,
     metric_labels,
-    flag_rows=None,
     flag_ax=None,
-    flag_legend_ax=None,
     cbar_ax=None,
     side_values=None,
     side_label=None,
@@ -454,8 +321,6 @@ def _draw_layer_heatmap(
     side_header = ""
     if side_values is not None:
         side_header = side_label or ""
-    elif flag_rows:
-        side_header = "Flag"
     if side_header:
         side_table = side_header_ax.table(
             cellText=[[side_header]],
@@ -532,48 +397,6 @@ def _draw_layer_heatmap(
         for layer_idx, text_label in enumerate(rendered_side_labels):
             if text_label:
                 flag_ax.text(0, layer_idx, text_label, ha="center", va="center", fontsize=5.5, fontweight="bold", color="black")
-        if flag_legend_ax is not None:
-            flag_legend_ax.axis("off")
-    elif flag_rows:
-        flag_codes, flag_values = _layer_flag_codes(flag_rows, num_layers)
-        if flag_ax is None:
-            flag_ax = ax.inset_axes([1.02, 0.0, 0.12, 1.0])
-        flag_image = flag_ax.imshow(
-            np.asarray(flag_values, dtype=float).reshape(num_layers, 1),
-            aspect="auto",
-            interpolation="nearest",
-            cmap=plt.cm.YlOrRd,
-            vmin=0,
-            vmax=4,
-            origin="upper",
-        )
-        flag_ax.set_xticks([0])
-        flag_ax.set_xticklabels([""], fontsize=6)
-        if num_layers > 25:
-            tick_step = max(1, int(np.ceil(num_layers / 25)))
-            flag_ax.set_yticks(np.arange(0, num_layers, tick_step))
-            flag_ax.set_yticklabels([])
-        else:
-            flag_ax.set_yticks(np.arange(num_layers))
-            flag_ax.set_yticklabels([])
-        flag_ax.tick_params(axis="x", length=0, pad=1)
-        flag_ax.tick_params(axis="y", length=0)
-        for layer_idx, code in enumerate(flag_codes):
-            if code:
-                flag_ax.text(0, layer_idx, code, ha="center", va="center", fontsize=6, fontweight="bold", color="black")
-        legend_target_ax = flag_legend_ax or flag_ax
-        if flag_legend_ax is not None:
-            flag_legend_ax.axis("off")
-        legend_target_ax.text(
-            0.5,
-            0.5 if flag_legend_ax is not None else -0.10,
-            "FAIL = layer fail  |  FB = fallback to raw  |  NS = never settled  |  OV = low overlap",
-            ha="center",
-            va="center",
-            fontsize=4.5,
-            transform=legend_target_ax.transAxes,
-            clip_on=flag_legend_ax is None,
-        )
     return image, flag_image
 
 
@@ -769,192 +592,6 @@ def build_summary_skeleton(
     return axes
 
 
-def _generate_summary_page(
-    beam_name,
-    beam_data,
-    patient_id="",
-    patient_name="",
-    report_mode="raw",
-    analysis_config=None,
-):
-    from datetime import date as _date
-
-    layers_data = beam_data["layers"]
-    num_layers = len(layers_data)
-    metrics, all_plan_pos, all_log_pos, pass_flags, layer_labels, num_pass, total_spots = _collect_beam_metrics(layers_data, report_mode)
-    mean_x_all = metrics["mean_x"]
-    mean_y_all = metrics["mean_y"]
-    std_x_all = metrics["std_x"]
-    std_y_all = metrics["std_y"]
-    rmse_x_all = metrics["rmse_x"]
-    rmse_y_all = metrics["rmse_y"]
-    max_x_all = metrics["max_x"]
-    max_y_all = metrics["max_y"]
-    p95_x_all = metrics["p95_x"]
-    p95_y_all = metrics["p95_y"]
-    pass_rate = num_pass / total_spots * 100 if total_spots > 0 else 0
-
-    similarity_str = "N/A"
-    if all_plan_pos and all_log_pos:
-        plan_concat = np.vstack(all_plan_pos).ravel()
-        log_concat = np.vstack(all_log_pos).ravel()
-        if len(plan_concat) == len(log_concat) and len(plan_concat) > 1:
-            corr, _ = pearsonr(plan_concat, log_concat)
-            similarity_str = f"{corr:.6f}"
-
-    verdict, pass_color = _beam_verdict(pass_rate)
-    global_mean_x = np.mean(mean_x_all) if mean_x_all else 0
-    global_mean_y = np.mean(mean_y_all) if mean_y_all else 0
-    global_std_x = np.mean(std_x_all) if std_x_all else 0
-    global_std_y = np.mean(std_y_all) if std_y_all else 0
-    global_rmse_x = np.mean(rmse_x_all) if rmse_x_all else 0
-    global_rmse_y = np.mean(rmse_y_all) if rmse_y_all else 0
-    global_max_x = max(max_x_all) if max_x_all else 0
-    global_max_y = max(max_y_all) if max_y_all else 0
-    global_p95_x = np.mean(p95_x_all) if p95_x_all else 0
-    global_p95_y = np.mean(p95_y_all) if p95_y_all else 0
-
-    radial_means = np.sqrt(np.array(mean_x_all) ** 2 + np.array(mean_y_all) ** 2)
-    radial_per_layer = np.sqrt(np.array(rmse_x_all) ** 2 + np.array(rmse_y_all) ** 2)
-    global_radial_mean = float(np.mean(radial_means)) if len(radial_means) else 0
-    global_radial_max = float(np.max(radial_means)) if len(radial_means) else 0
-    global_radial_p95 = float(np.percentile(radial_per_layer, 95)) if len(radial_per_layer) else 0
-    global_radial_rmse = float(np.mean(radial_per_layer)) if len(radial_per_layer) else 0
-
-    extra_subtitle = (
-        f"Zero-dose filter active: {report_mode} metrics shown"
-        if report_mode != "raw"
-        else None
-    )
-    axes = build_summary_skeleton(
-        beam_name=beam_name,
-        verdict_text=f"{verdict} {num_pass}/{total_spots} ({pass_rate:.0f}%)",
-        verdict_color=pass_color,
-        subtitle_line=f"Patient ID: {patient_id}    |    Name: {patient_name}    |    Date: {_date.today().isoformat()}    |    Layers: {num_layers}",
-        extra_subtitle=extra_subtitle,
-        has_top_summary=True,
-        top_summary_rows=1,
-        top_summary_bounds=(0.06, 0.94, 0.79, 0.89),
-        middle_width_ratios=(0.9, 1.3),
-        middle_bounds=(0.06, 0.97, 0.12, 0.78),
-        left_height_ratios=(0.04, 0.08, 0.76, 0.06, 0.04),
-        left_hspace=0.08,
-        right_height_ratios=(0.04, 0.03, 0.03, 0.785, 0.025, 0.04),
-        right_hspace=0.01,
-        bottom_width_ratios=(0.6, 1.0),
-        bottom_bounds=(0.06, 0.97, 0.03, 0.10),
-        bottom_wspace=0.10,
-    )
-    fig = axes["fig"]
-
-    # Top summary: position metrics with radial row
-    _draw_position_summary_table(
-        axes["top_summary_0"],
-        global_mean_x=global_mean_x,
-        global_mean_y=global_mean_y,
-        global_std_x=global_std_x,
-        global_std_y=global_std_y,
-        global_rmse_x=global_rmse_x,
-        global_rmse_y=global_rmse_y,
-        global_max_x=global_max_x,
-        global_max_y=global_max_y,
-        global_p95_x=global_p95_x,
-        global_p95_y=global_p95_y,
-        similarity_str=similarity_str,
-        include_radial=True,
-        radial_mean=global_radial_mean,
-        radial_rmse=global_radial_rmse,
-        radial_max=global_radial_max,
-        radial_p95=global_radial_p95,
-    )
-
-    # Left panel: layer trend plot
-    ax_err = axes["trend"]
-    layer_idx = np.arange(1, num_layers + 1)
-    worst_axis_error = np.maximum(np.array(max_x_all), np.array(max_y_all))
-    y_x = layer_idx - 0.16
-    y_y = layer_idx + 0.16
-    ax_err.errorbar(mean_x_all, y_x, xerr=std_x_all, fmt="o", markersize=3.5, linewidth=1.0, capsize=2.5, color="#1f77b4", ecolor="#1f77b4", label="X mean \u00b1 std", zorder=3)
-    ax_err.errorbar(mean_y_all, y_y, xerr=std_y_all, fmt="s", markersize=3.2, linewidth=1.0, capsize=2.5, color="#ff7f0e", ecolor="#ff7f0e", label="Y mean \u00b1 std", zorder=3)
-    ax_err.scatter(mean_x_all, y_x, c=["#2ecc71" if passed else "#e74c3c" for passed in pass_flags], s=14, zorder=4, edgecolors="white", linewidths=0.3)
-    ax_err.scatter(mean_y_all, y_y, c=["#2ecc71" if passed else "#e74c3c" for passed in pass_flags], s=14, zorder=4, edgecolors="white", linewidths=0.3, marker="s")
-    ax_err.axvspan(-THRESHOLDS["mean_diff_mm"], THRESHOLDS["mean_diff_mm"],
-                   alpha=0.12, color="#2ecc71", zorder=1, label=f"\u00b1{THRESHOLDS['mean_diff_mm']} mm mean target")
-    for x_pos, style, color in (
-        (0, "-", "#7f8c8d"),
-        (THRESHOLDS["mean_diff_mm"], "--", "#95a5a6"),
-        (-THRESHOLDS["mean_diff_mm"], "--", "#95a5a6"),
-    ):
-        ax_err.axvline(x_pos, linestyle=style, linewidth=0.8 if style != "-" else 0.9, color=color, alpha=0.8)
-    ax_err.set_xlabel("Deviation (mm)", fontsize=7)
-    ax_err.set_ylabel("Layer", fontsize=7)
-    ax_err.set_yticks(layer_idx)
-    ax_err.set_yticklabels(layer_labels)
-    ax_err.set_ylim(num_layers + 0.6, 0.4)
-    ax_err.tick_params(labelsize=6)
-    ax_err.grid(True, alpha=0.3, axis="x")
-    if num_layers > 25:
-        ax_err.tick_params(axis="y", labelsize=4)
-    all_devs = np.concatenate([np.array(mean_x_all) - np.array(std_x_all), np.array(mean_x_all) + np.array(std_x_all),
-                               np.array(mean_y_all) - np.array(std_y_all), np.array(mean_y_all) + np.array(std_y_all)])
-    dev_min = min(float(all_devs.min()), -THRESHOLDS["mean_diff_mm"])
-    dev_max = max(float(all_devs.max()), THRESHOLDS["mean_diff_mm"])
-    margin = max(0.2, (dev_max - dev_min) * 0.1)
-    ax_err.set_xlim(dev_min - margin, dev_max + margin)
-    ax_err.legend(fontsize=5, loc="upper left")
-
-    # Right panel: layer heatmap
-    fallback_flags = []
-    never_settled_flags = []
-    low_overlap_flags = []
-    for layer in layers_data:
-        results = layer.get("results", {})
-        fallback_flags.append(1 if results.get("filtered_stats_fallback_to_raw", False) else 0)
-        never_settled_flags.append(1 if results.get("settling_status") == "never_settled" else 0)
-        overlap = results.get("time_overlap_fraction")
-        low_overlap_flags.append(1 if overlap is not None and overlap < 0.95 else 0)
-    flag_rows = {}
-    if any(not flag for flag in [False] + fallback_flags):
-        flag_rows["Fallback"] = fallback_flags
-    if any(not flag for flag in [False] + never_settled_flags):
-        flag_rows["Settle"] = never_settled_flags
-    if any(not flag for flag in [False] + low_overlap_flags):
-        flag_rows["Overlap"] = low_overlap_flags
-    if any(pass_flag is False for pass_flag in pass_flags):
-        flag_rows["Fail"] = [0 if passed else 1 for passed in pass_flags]
-    _draw_layer_heatmap(
-        fig,
-        axes["heatmap_title"],
-        axes["heatmap_group_header"],
-        axes["heatmap_metric_header"],
-        axes["heatmap_side_header"],
-        axes["heatmap"],
-        np.array([np.abs(mean_x_all), std_x_all, max_x_all, np.abs(mean_y_all), std_y_all, max_y_all]),
-        layer_labels,
-        ["Mean", "Std", "Max", "Mean", "Std", "Max"],
-        flag_rows=flag_rows if flag_rows else None,
-        flag_ax=axes["heatmap_flags"],
-        flag_legend_ax=axes["heatmap_flag_legend"],
-        cbar_ax=axes["heatmap_cbar"],
-    )
-
-    # Bottom panels
-    ax_filter = axes["bottom_left"]
-    ax_filter.axis("off")
-    _draw_analysis_info_panel(ax_filter, layers_data, report_mode, analysis_config)
-    ax_worst = axes["bottom_right"]
-    ax_worst.axis("off")
-    worst_order = np.argsort(worst_axis_error)[::-1][: min(5, num_layers)]
-    if len(worst_order) > 0:
-        ax_worst.text(0.02, 0.94, "Worst Layers", ha="left", va="top", fontsize=8, fontweight="bold", transform=ax_worst.transAxes)
-        ax_worst.text(
-            0.02, 0.84,
-            "\n".join([f"L{layer_labels[idx]}: max_x {max_x_all[idx]:.2f} mm, max_y {max_y_all[idx]:.2f} mm" for idx in worst_order]),
-            ha="left", va="top", fontsize=6.5, family="monospace", transform=ax_worst.transAxes,
-        )
-    return fig
-
-
 def _generate_point_gamma_summary_page(
     beam_name,
     beam_data,
@@ -1097,7 +734,6 @@ def _generate_point_gamma_summary_page(
         layer_labels,
         ["Mean", "Std", "Max", "Mean", "Std", "Max"],
         flag_ax=axes["heatmap_flags"],
-        flag_legend_ax=axes["heatmap_flag_legend"],
         cbar_ax=axes["heatmap_cbar"],
         side_values=gamma_metrics["layer_pass_rates"],
         side_label="Gamma",

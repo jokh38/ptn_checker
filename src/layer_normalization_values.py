@@ -9,7 +9,7 @@ from src.analysis_context import (
     parse_ptn_with_optional_mu_correction,
 )
 from src.planrange_parser import parse_planrange_for_directory
-from src.ptn_discovery import find_ptn_files
+from main import find_ptn_files
 
 
 def format_range_difference(label_a, value_a, label_b, value_b):

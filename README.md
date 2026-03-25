@@ -18,6 +18,8 @@ A Python-based tool for analyzing and comparing radiotherapy treatment plans (DI
 - **Machine-Specific Configuration**: Supports different treatment machines (G1, G2) with calibration parameters
 - **Beam Filtering**: Optional filtering of log data based on beam on/off states
 - **Multi-Beam and Multi-Layer Support**: Handles complex treatment plans with multiple beams and energy layers
+- **Point Gamma Analysis**: Optional gamma index analysis with configurable fluence and distance thresholds
+- **Zero Dose Filtering**: Filters out low-dose spots during analysis with configurable thresholds
 
 ## Installation
 
@@ -48,6 +50,7 @@ pip install -r requirements.txt
 | `scipy` | Curve fitting, PCHIP interpolation for MU correction |
 | `matplotlib` | Plotting and PDF generation |
 | `pydicom` | DICOM file parsing |
+| `pyyaml` | YAML configuration file parsing |
 
 ## Usage
 
@@ -75,6 +78,16 @@ python main.py \
   --dcm_file ./plan.dcm \
   --output ./reports
 ```
+
+### Batch Processing
+
+For processing multiple cases, use the provided batch script:
+
+```bash
+bash run_batch.sh
+```
+
+Edit `run_batch.sh` to customize the log directory, DICOM file path, and output location for your data.
 
 ### Output
 
@@ -125,6 +138,26 @@ app:
   export_pdf_report: true
   export_report_csv: false
   save_debug_csv: false
+  analysis_mode: point_gamma
+
+point_gamma:
+  fluence_percent_threshold: 5.0
+  distance_mm_threshold: 2.0
+  lower_percent_fluence_cutoff: 10.0
+  normalization_factor_by_machine:
+    G1: 2.1384e-8
+    G2: 2.0e-8
+
+zero_dose_filter:
+  enabled: true
+  max_mu: 0.001
+  machine_min_mu: 0.000452
+  min_scan_speed_mm_s: 19000
+  min_run_length: 2
+  keep_first_zero_mu_spot: true
+  boundary_holdoff_s: 0.0006
+  post_minimal_dose_boundary_s: 0.001
+  report_mode: "filtered"
 ```
 
 | Parameter | Description |
@@ -134,6 +167,30 @@ app:
 | `export_pdf_report` | `true` to generate the PDF report, `false` to skip PDF generation |
 | `export_report_csv` | `true` to generate one per-beam layer-summary CSV for downstream programs |
 | `save_debug_csv` | `true` to generate per-layer debug CSV files with low-level sample data |
+| `analysis_mode` | Analysis mode: `point_gamma` for gamma index analysis, or omit for basic position comparison |
+
+#### point_gamma Section
+
+| Parameter | Description |
+|-----------|-------------|
+| `fluence_percent_threshold` | Fluence percentage threshold for gamma analysis (%) |
+| `distance_mm_threshold` | Distance-to-agreement threshold for gamma analysis (mm) |
+| `lower_percent_fluence_cutoff` | Lower fluence cutoff percentage for filtering low-dose regions |
+| `normalization_factor_by_machine` | Machine-specific normalization factors (G1, G2) |
+
+#### zero_dose_filter Section
+
+| Parameter | Description |
+|-----------|-------------|
+| `enabled` | Enable/disable zero dose spot filtering |
+| `max_mu` | Maximum MU threshold for considering a spot as "zero dose" |
+| `machine_min_mu` | Machine-specific minimum MU value |
+| `min_scan_speed_mm_s` | Minimum scan speed threshold (mm/s) |
+| `min_run_length` | Minimum consecutive spots for a filter run |
+| `keep_first_zero_mu_spot` | Keep the first zero-MU spot in a run |
+| `boundary_holdoff_s` | Boundary holdoff time in seconds |
+| `post_minimal_dose_boundary_s` | Post-minimal dose boundary time in seconds |
+| `report_mode` | Reporting mode: `"filtered"` or `"all"` |
 
 ### scv_init Files
 
@@ -183,6 +240,9 @@ ptn_checker/
 ├── scv_init_G1.txt           # Configuration for machine G1
 ├── scv_init_G2.txt           # Configuration for machine G2
 ├── requirements.txt          # Python dependencies
+├── run_batch.sh              # Batch processing script
+├── LOGFILE_SPEC.md           # PTN log file format specification
+├── AGENTS.md                 # Agent runbook for AI development
 ├── src/
 │   ├── __init__.py
 │   ├── log_parser.py         # Parses binary PTN files
@@ -191,7 +251,15 @@ ptn_checker/
 │   ├── planrange_parser.py   # Parses PlanRange.txt for energy/range codes
 │   ├── mu_correction.py      # Applies physics corrections to MU values
 │   ├── calculator.py         # Calculates position differences
+│   ├── analysis_context.py   # Orchestrates analysis workflow
+│   ├── layer_normalization_values.py # Per-layer MU normalization factors
+│   ├── ptn_discovery.py      # Discovers PTN files in log directories
 │   ├── report_generator.py   # Generates PDF reports
+│   ├── report_layout.py      # Base report layout definitions
+│   ├── point_gamma_report_layout.py # Point gamma report layout
+│   ├── point_gamma_workflow.py # Point gamma analysis workflow
+│   ├── report_metrics.py     # Statistical metrics calculations
+│   ├── report_constants.py   # Report display constants
 │   ├── report_csv_exporter.py # Generates per-beam report CSV files
 │   └── config_loader.py      # Loads configuration files
 ├── tests/
@@ -204,7 +272,14 @@ ptn_checker/
 │   ├── test_calculator.py    # Position difference calculation tests
 │   ├── test_report_generator.py  # Report generation tests
 │   ├── test_beam_filtering.py    # Beam on/off filtering tests
-│   └── test_config_loader.py     # Configuration loading tests
+│   ├── test_config_loader.py     # Configuration loading tests
+│   ├── test_analysis_context.py  # Analysis context tests
+│   ├── test_layer_normalization_values.py # Layer normalization tests
+│   ├── test_point_gamma_workflow.py # Point gamma workflow tests
+│   └── test_report_csv_exporter.py # Report CSV exporter tests
+├── docs/                     # Documentation directory
+│   └── plan/                 # Implementation plans
+├── output/                   # Generated analysis outputs
 └── README.md                 # This file
 ```
 
@@ -217,8 +292,10 @@ ptn_checker/
 5. **Parse PTN Files**: For each layer, parse the corresponding PTN file with calibration
 6. **Apply MU Correction**: Convert raw dose counts to physics-corrected MU values using energy-dependent factors
 7. **Calculate Differences**: Sample the reconstructed plan trajectory on rebased log time and calculate position differences
-8. **Statistical Analysis**: Fit Gaussian curves to difference histograms
-9. **Generate Outputs**: Create PDF and/or per-beam report CSV files according to `config.yaml`
+8. **Apply Zero Dose Filter**: Filter out low-dose spots based on configurable thresholds
+9. **Point Gamma Analysis** (optional): Calculate gamma indices if `analysis_mode: point_gamma`
+10. **Statistical Analysis**: Fit Gaussian curves to difference histograms
+11. **Generate Outputs**: Create PDF and/or per-beam report CSV files according to `config.yaml`
 
 ## MU Correction
 
@@ -233,6 +310,16 @@ corrected_mu = dose1_au
 ```
 
 This correction chain is adapted from the `mqi_interpreter` reference implementation and uses PCHIP interpolation for smooth energy-dependent factors across the 70-230 MeV range.
+
+## Point Gamma Analysis
+
+When `analysis_mode: point_gamma` is set in `config.yaml`, the tool performs gamma index analysis:
+
+- Compares planned vs. delivered fluence at each point
+- Calculates gamma index based on configurable distance and dose difference thresholds
+- Filters low-fluence regions using `lower_percent_fluence_cutoff`
+- Applies machine-specific normalization factors
+- Generates point gamma visualization in the PDF report
 
 ## Testing
 
@@ -259,7 +346,7 @@ python -m pytest -v tests/
 ### Test Coverage
 
 The test suite includes:
-- Unit tests for each module (log parser, DICOM parser, calculator, report generator, config loader, plan timing, MU correction)
+- Unit tests for each module (log parser, DICOM parser, calculator, report generator, config loader, plan timing, MU correction, analysis context, layer normalization values, point gamma workflow, report CSV exporter)
 - Integration tests for the main workflow
 - Error handling tests (missing files, invalid data)
 - Beam filtering tests for on/off state handling
@@ -272,6 +359,8 @@ Binary format containing treatment delivery logs:
 - 8 columns of data per record (big-endian unsigned 16-bit integers)
 - Columns: RawX, RawY, RawXSize, RawYSize, Dose1, Dose2, LayerNum, BeamOnOff
 - Beam On threshold: `beam_on_off > 49152` (filtered when `FILTERED_BEAM_ON_OFF=on`)
+
+See `LOGFILE_SPEC.md` for detailed format specification.
 
 ### DICOM RTPLAN Files
 

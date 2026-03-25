@@ -1,0 +1,1 @@
+python main.py --log_dir /home/jokh38/MOQUI_SMC/data/SHI_log/55758663 --dcm_file  /home/jokh38/MOQUI_SMC/data/SHI_log/55758663/RP.1.2.840.113854.116162735116359465886295179291233309871.1.dcm --output ./output/55758663

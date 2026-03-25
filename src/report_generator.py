@@ -5,12 +5,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.backends.backend_pdf import PdfPages
 
-from src.report_constants import A4_FIGSIZE, POSITION_PLOT_FIGSIZE
+A4_FIGSIZE = (8.27, 11.69)
+POSITION_PLOT_FIGSIZE = (8, 8)
+
 from src.report_layout import (
-    _draw_analysis_info_panel,
-    _draw_layer_heatmap,
     _generate_point_gamma_summary_page,
-    _generate_summary_page,
 )
 from src.report_metrics import (
     layer_passes as _layer_passes,
@@ -270,32 +269,3 @@ def generate_report(
                     )
             logger.info("Point-gamma detail report saved to %s", detail_path)
         return
-
-    filename = f"{report_name}.pdf" if report_name else "analysis_report.pdf"
-    pdf_path = os.path.join(output_dir, filename)
-
-    with PdfPages(pdf_path) as pdf:
-        for beam_name, beam_data in report_data.items():
-            if beam_name.startswith("_"):
-                continue
-            if not beam_data["layers"]:
-                logger.warning("No layers with analysis results for beam '%s'. Skipping.", beam_name)
-                continue
-
-            if report_style == "summary":
-                summary_fig = _generate_summary_page(
-                    beam_name,
-                    beam_data,
-                    patient_id=patient_id,
-                    patient_name=patient_name,
-                    report_mode=report_mode,
-                    analysis_config=analysis_config,
-                )
-                pdf.savefig(summary_fig)
-                plt.close(summary_fig)
-                logger.info("Summary page for Beam '%s' added to PDF.", beam_name)
-                continue
-
-            _save_position_detail_pages(pdf, beam_name, beam_data, report_mode)
-
-    logger.info("Analysis report saved to %s", pdf_path)
