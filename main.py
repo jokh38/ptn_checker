@@ -15,6 +15,7 @@ from src.report_generator import generate_report
 from src.report_csv_exporter import export_report_csv
 from src.config_loader import parse_yaml_config
 from src.planrange_parser import parse_planrange_for_directory
+
 logger = logging.getLogger(__name__)
 
 
@@ -37,9 +38,7 @@ def _analysis_mode(config):
 
 def _resolve_machine_gamma_config(app_config, machine_name):
     analysis_config = dict(app_config)
-    normalization_map = analysis_config.get(
-        "GAMMA_NORMALIZATION_FACTOR_BY_MACHINE", {}
-    )
+    normalization_map = analysis_config.get("GAMMA_NORMALIZATION_FACTOR_BY_MACHINE", {})
     if not isinstance(normalization_map, dict):
         return analysis_config
 
@@ -110,7 +109,9 @@ def read_planinfo_beam_number(directory):
                     if value:
                         return int(value)
     except (OSError, ValueError) as exc:
-        logger.warning("Failed to read PlanInfo beam number from %s: %s", planinfo_path, exc)
+        logger.warning(
+            "Failed to read PlanInfo beam number from %s: %s", planinfo_path, exc
+        )
 
     return None
 
@@ -184,21 +185,24 @@ def run_analysis(log_dir, dcm_file, output_dir, report_name=None):
 
     machine_name = plan_data_raw.get("machine_name", "UNKNOWN")
     logger.info(f"Detected treatment machine: {machine_name}")
-    analysis_config = {**config, **_resolve_machine_gamma_config(app_config, machine_name)}
+    analysis_config = {
+        **config,
+        **_resolve_machine_gamma_config(app_config, machine_name),
+    }
 
     delivery_groups = collect_ptn_delivery_groups(log_dir)
     if not delivery_groups:
         raise FileNotFoundError(f"No .ptn files found in directory {log_dir}")
 
     treatment_beams = {
-        beam_number: beam_data for beam_number, beam_data in plan_data_raw["beams"].items()
+        beam_number: beam_data
+        for beam_number, beam_data in plan_data_raw["beams"].items()
     }
     matched_groups = match_delivery_groups_to_beams(treatment_beams, delivery_groups)
 
     # Count expected layers across all beams
     expected_layer_count = sum(
-        len(beam_data.get("layers", {}))
-        for beam_data in treatment_beams.values()
+        len(beam_data.get("layers", {})) for beam_data in treatment_beams.values()
     )
     actual_layer_count = sum(len(group["ptn_files"]) for group in delivery_groups)
     if actual_layer_count != expected_layer_count:
@@ -278,6 +282,8 @@ def run_analysis(log_dir, dcm_file, output_dir, report_name=None):
                             layer_data,
                             log_data_raw,
                             analysis_config,
+                            save_to_csv=save_csv_for_this_layer,
+                            csv_filename=csv_filepath,
                         )
                     else:
                         analysis_results = calculate_differences_for_layer(
@@ -323,7 +329,9 @@ def run_analysis(log_dir, dcm_file, output_dir, report_name=None):
             report_mode=app_config["ZERO_DOSE_REPORT_MODE"],
         )
     elif app_config["EXPORT_REPORT_CSV"]:
-        logger.warning("Point gamma CSV export is not implemented in this pass; skipping")
+        logger.warning(
+            "Point gamma CSV export is not implemented in this pass; skipping"
+        )
 
     if app_config["EXPORT_PDF_REPORT"]:
         logger.info(f"Generating PDF report in directory: {output_dir}")
