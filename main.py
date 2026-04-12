@@ -355,6 +355,7 @@ def run_analysis(log_dir, dcm_file, output_dir, report_name=None):
                 analysis_config=analysis_config,
             )
     logger.info("Done.")
+    return report_data
 
 
 def main():
