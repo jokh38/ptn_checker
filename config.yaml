@@ -6,7 +6,7 @@ app:
   export_report_csv: false
   report_style_summary: true
   report_detail_pdf: false
-  save_debug_csv: true
+  save_debug_csv: false
   analysis_mode: point_gamma
 
 point_gamma:
