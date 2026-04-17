@@ -1181,7 +1181,7 @@ class TestMain(unittest.TestCase):
         ):
             main.main()
 
-        expected_report_name = f"55758663_{date.today().isoformat()}"
+        expected_report_name = f"PTN_report_55758663_{date.today().isoformat()}"
         self.assertEqual(
             mock.call(case_dir, self.dcm_file, self.test_dir, report_name=expected_report_name),
             mock_run_analysis.call_args,
@@ -1203,7 +1203,7 @@ class TestMain(unittest.TestCase):
 
     def test_derive_report_name_uses_case_directory_basename(self):
         report_name = main.derive_report_name("/tmp/55758663")
-        self.assertEqual(f"55758663_{date.today().isoformat()}", report_name)
+        self.assertEqual(f"PTN_report_55758663_{date.today().isoformat()}", report_name)
 
 
 if __name__ == "__main__":

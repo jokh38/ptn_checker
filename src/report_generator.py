@@ -148,6 +148,20 @@ def _report_pdf_path(output_dir, report_name=None, suffix=None):
     return os.path.join(output_dir, filename)
 
 
+def _point_gamma_report_pdf_path(output_dir, report_name, beam_name, *, detail=False):
+    if report_name and "_" in report_name:
+        report_prefix, report_date = report_name.rsplit("_", 1)
+        base_name = f"{report_prefix}_{beam_name}_{report_date}"
+    elif report_name:
+        base_name = f"{report_name}_{beam_name}"
+    else:
+        base_name = f"analysis_report_{beam_name}"
+
+    if detail:
+        base_name = f"{base_name}_detail"
+    return os.path.join(output_dir, f"{base_name}.pdf")
+
+
 def _save_position_detail_pages(pdf, beam_name, beam_data, report_mode):
     error_bar_fig = _generate_error_bar_plot_for_beam(
         beam_name,
@@ -228,15 +242,15 @@ def generate_report(
     patient_name = report_data.get("_patient_name", "")
 
     if analysis_mode == "point_gamma":
-        summary_path = _report_pdf_path(output_dir, report_name, "summary")
-        with PdfPages(summary_path) as pdf:
-            for beam_name, beam_data in report_data.items():
-                if beam_name.startswith("_"):
-                    continue
-                if not beam_data["layers"]:
-                    logger.warning("No layers with analysis results for beam '%s'. Skipping.", beam_name)
-                    continue
+        for beam_name, beam_data in report_data.items():
+            if beam_name.startswith("_"):
+                continue
+            if not beam_data["layers"]:
+                logger.warning("No layers with analysis results for beam '%s'. Skipping.", beam_name)
+                continue
 
+            summary_path = _point_gamma_report_pdf_path(output_dir, report_name, beam_name)
+            with PdfPages(summary_path) as pdf:
                 summary_fig = _generate_point_gamma_summary_page(
                     beam_name,
                     beam_data,
@@ -247,23 +261,24 @@ def generate_report(
                 pdf.savefig(summary_fig)
                 plt.close(summary_fig)
                 logger.info("Point-gamma summary page for Beam '%s' added to PDF.", beam_name)
-        logger.info("Point-gamma summary report saved to %s", summary_path)
+            logger.info("Point-gamma summary report saved to %s", summary_path)
 
-        if report_detail_pdf:
-            detail_path = _report_pdf_path(output_dir, report_name, "detail")
+            if not report_detail_pdf:
+                continue
+
+            detail_path = _point_gamma_report_pdf_path(
+                output_dir,
+                report_name,
+                beam_name,
+                detail=True,
+            )
             with PdfPages(detail_path) as pdf:
-                for beam_name, beam_data in report_data.items():
-                    if beam_name.startswith("_"):
-                        continue
-                    if not beam_data["layers"]:
-                        logger.warning("No layers with analysis results for beam '%s'. Skipping.", beam_name)
-                        continue
-
+                for detail_beam_name, detail_beam_data in ((beam_name, beam_data),):
                     _save_position_detail_pages(pdf, beam_name, beam_data, report_mode)
                     _save_point_gamma_detail_pages(
                         pdf,
-                        beam_name,
-                        beam_data,
+                        detail_beam_name,
+                        detail_beam_data,
                         patient_id,
                         patient_name,
                     )

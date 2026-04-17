@@ -92,8 +92,9 @@ Edit `run_batch.sh` to customize the log directory, DICOM file path, and output 
 ### Output
 
 The tool generates:
-- **`{case_id}_{date}.pdf`**: Main analysis report (e.g., `2025042401440800_2025-01-15.pdf`)
-  - Report name is derived from the log directory basename and current date
+- **`PTN_report_{case_id}_{beam_name}_{date}.pdf`**: Per-beam summary analysis report (e.g., `PTN_report_2025042401440800_Beam 1_2025-01-15.pdf`)
+- **`PTN_report_{case_id}_{beam_name}_{date}_detail.pdf`**: Per-beam detail analysis report when detail PDF export is enabled
+  - Report names are derived from the log directory basename, beam name, and current date
 - **`<beam_name>_report_layers.csv`** (optional): Per-beam report CSV with one row per analyzed layer when `export_report_csv: true`
 - **`debug_data_beam_<N>_layer_<M>.csv`** (optional): Debug CSV with interpolated and raw per-sample data when `save_debug_csv: true`
 

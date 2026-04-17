@@ -52,7 +52,7 @@ def derive_report_name(log_dir, today=None):
     """Build a case-level report name from the selected log directory."""
     report_date = today or date.today()
     case_id = os.path.basename(os.path.normpath(log_dir))
-    return f"{case_id}_{report_date.isoformat()}"
+    return f"PTN_report_{case_id}_{report_date.isoformat()}"
 
 
 def collect_ptn_delivery_groups(log_dir):

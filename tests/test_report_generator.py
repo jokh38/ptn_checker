@@ -386,13 +386,19 @@ class TestReportGenerator(unittest.TestCase):
         plt.close(fig)
 
     def test_generate_report_writes_point_gamma_summary_and_detail_pdfs_when_detail_enabled(self):
-        summary_pdf = os.path.join(self.output_dir, "case123_summary.pdf")
-        detail_pdf = os.path.join(self.output_dir, "case123_detail.pdf")
+        summary_pdf = os.path.join(
+            self.output_dir,
+            "PTN_report_case123_Beam 1_2026-04-17.pdf",
+        )
+        detail_pdf = os.path.join(
+            self.output_dir,
+            "PTN_report_case123_Beam 1_2026-04-17_detail.pdf",
+        )
 
         generate_report(
             self.point_gamma_report_data,
             self.output_dir,
-            report_name="case123",
+            report_name="PTN_report_case123_2026-04-17",
             analysis_mode="point_gamma",
             report_detail_pdf=True,
             analysis_config={
@@ -406,13 +412,19 @@ class TestReportGenerator(unittest.TestCase):
         self.assertTrue(os.path.exists(detail_pdf))
 
     def test_generate_report_skips_point_gamma_detail_pdf_when_disabled(self):
-        summary_pdf = os.path.join(self.output_dir, "case124_summary.pdf")
-        detail_pdf = os.path.join(self.output_dir, "case124_detail.pdf")
+        summary_pdf = os.path.join(
+            self.output_dir,
+            "PTN_report_case124_Beam 1_2026-04-17.pdf",
+        )
+        detail_pdf = os.path.join(
+            self.output_dir,
+            "PTN_report_case124_Beam 1_2026-04-17_detail.pdf",
+        )
 
         generate_report(
             self.point_gamma_report_data,
             self.output_dir,
-            report_name="case124",
+            report_name="PTN_report_case124_2026-04-17",
             analysis_mode="point_gamma",
             report_detail_pdf=False,
             analysis_config={
