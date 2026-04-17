@@ -254,13 +254,11 @@ ptn_checker/
 │   ├── calculator.py         # Calculates position differences
 │   ├── analysis_context.py   # Orchestrates analysis workflow
 │   ├── layer_normalization_values.py # Per-layer MU normalization factors
-│   ├── ptn_discovery.py      # Discovers PTN files in log directories
 │   ├── report_generator.py   # Generates PDF reports
 │   ├── report_layout.py      # Base report layout definitions
 │   ├── point_gamma_report_layout.py # Point gamma report layout
 │   ├── point_gamma_workflow.py # Point gamma analysis workflow
 │   ├── report_metrics.py     # Statistical metrics calculations
-│   ├── report_constants.py   # Report display constants
 │   ├── report_csv_exporter.py # Generates per-beam report CSV files
 │   └── config_loader.py      # Loads configuration files
 ├── tests/
