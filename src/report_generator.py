@@ -149,13 +149,15 @@ def _report_pdf_path(output_dir, report_name=None, suffix=None):
 
 
 def _point_gamma_report_pdf_path(output_dir, report_name, beam_name, *, detail=False):
+    # Sanitize beam_name for filesystem compatibility
+    safe_beam_name = str(beam_name).replace(":", "_").replace("/", "_").replace("\\", "_")
     if report_name and "_" in report_name:
         report_prefix, report_date = report_name.rsplit("_", 1)
-        base_name = f"{report_prefix}_{beam_name}_{report_date}"
+        base_name = f"{report_prefix}_{safe_beam_name}_{report_date}"
     elif report_name:
-        base_name = f"{report_name}_{beam_name}"
+        base_name = f"{report_name}_{safe_beam_name}"
     else:
-        base_name = f"analysis_report_{beam_name}"
+        base_name = f"analysis_report_{safe_beam_name}"
 
     if detail:
         base_name = f"{base_name}_detail"
