@@ -14,8 +14,8 @@ point_gamma:
   distance_mm_threshold: 2.0
   lower_percent_fluence_cutoff: 10.0
   normalization_factor_by_machine:
-    G1: 2.1384e-8
-    G2: 2.0e-8
+    G1: 2.1125e-8
+    G2: 2.12e-8
 
 zero_dose_filter:
   enabled: true
