@@ -51,6 +51,7 @@ def build_layer_time_trajectory(
 
     segment_vectors = positions_cm[1:] - positions_cm[:-1]
     segment_distances = np.linalg.norm(segment_vectors, axis=1)
+    segment_distances = np.floor(segment_distances * 10.0) / 10.0  # quantize distance to 1 mm grid
     segment_mu = mu[1:]
 
     if segment_mu.size > 0:
