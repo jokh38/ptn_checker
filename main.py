@@ -19,6 +19,20 @@ from src.planrange_parser import parse_planrange_for_directory
 logger = logging.getLogger(__name__)
 
 
+def _normalize_report_paths(report_paths):
+    if report_paths is None:
+        return []
+    if isinstance(report_paths, (str, os.PathLike)):
+        return [str(report_paths)]
+
+    normalized = []
+    for path in report_paths:
+        if path is None:
+            continue
+        normalized.append(str(path))
+    return normalized
+
+
 def find_ptn_files(directory: str, *, sort_paths: bool = False) -> list[str]:
     """Return PTN files under ``directory`` with optional deterministic ordering."""
     ptn_files = []
@@ -333,10 +347,11 @@ def run_analysis(log_dir, dcm_file, output_dir, report_name=None):
             "Point gamma CSV export is not implemented in this pass; skipping"
         )
 
+    generated_report_paths = []
     if app_config["EXPORT_PDF_REPORT"]:
         logger.info(f"Generating PDF report in directory: {output_dir}")
         if analysis_mode == "point_gamma":
-            generate_report(
+            generated_report_paths = _normalize_report_paths(generate_report(
                 report_data,
                 output_dir,
                 report_name=report_name,
@@ -344,16 +359,19 @@ def run_analysis(log_dir, dcm_file, output_dir, report_name=None):
                 analysis_config=analysis_config,
                 analysis_mode="point_gamma",
                 report_detail_pdf=app_config.get("REPORT_DETAIL_PDF", False),
-            )
+            ))
         else:
-            generate_report(
+            generated_report_paths = _normalize_report_paths(generate_report(
                 report_data,
                 output_dir,
                 report_style=app_config["REPORT_STYLE"],
                 report_name=report_name,
                 report_mode=app_config["ZERO_DOSE_REPORT_MODE"],
                 analysis_config=analysis_config,
-            )
+            ))
+    if generated_report_paths:
+        report_data["_report_paths"] = generated_report_paths
+        report_data["_report_path"] = generated_report_paths[0]
     logger.info("Done.")
     return report_data
 

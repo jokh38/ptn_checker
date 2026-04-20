@@ -242,6 +242,7 @@ def generate_report(
     os.makedirs(output_dir, exist_ok=True)
     patient_id = report_data.get("_patient_id", "")
     patient_name = report_data.get("_patient_name", "")
+    generated_paths = []
 
     if analysis_mode == "point_gamma":
         for beam_name, beam_data in report_data.items():
@@ -264,6 +265,7 @@ def generate_report(
                 plt.close(summary_fig)
                 logger.info("Point-gamma summary page for Beam '%s' added to PDF.", beam_name)
             logger.info("Point-gamma summary report saved to %s", summary_path)
+            generated_paths.append(summary_path)
 
             if not report_detail_pdf:
                 continue
@@ -285,4 +287,7 @@ def generate_report(
                         patient_name,
                     )
             logger.info("Point-gamma detail report saved to %s", detail_path)
-        return
+            generated_paths.append(detail_path)
+        return generated_paths
+
+    return generated_paths

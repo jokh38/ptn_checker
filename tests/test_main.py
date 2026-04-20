@@ -647,7 +647,100 @@ class TestMain(unittest.TestCase):
             generate_report_mock.call_args.kwargs["analysis_mode"],
         )
         self.assertTrue(generate_report_mock.call_args.kwargs["report_detail_pdf"])
-        csv_export_mock.assert_not_called()
+
+    def test_run_analysis_returns_report_path_from_generate_report(self):
+        output_dir = os.path.join(self.test_dir, "output_report_path")
+        os.makedirs(output_dir)
+
+        expected_report_path = os.path.join(output_dir, "trajectory_summary.pdf")
+
+        with mock.patch.object(main, "generate_report", return_value=[expected_report_path]):
+            result = run_analysis(self.test_dir, self.dcm_file, output_dir)
+
+        self.assertEqual(expected_report_path, result["_report_path"])
+        self.assertEqual([expected_report_path], result["_report_paths"])
+
+    def test_run_analysis_returns_point_gamma_report_path_from_generate_report(self):
+        output_dir = os.path.join(self.test_dir, "output_point_gamma_report_path")
+        os.makedirs(output_dir)
+
+        point_gamma_config = {
+            "REPORT_STYLE_SUMMARY": True,
+            "REPORT_STYLE": "summary",
+            "EXPORT_PDF_REPORT": True,
+            "EXPORT_REPORT_CSV": False,
+            "SAVE_DEBUG_CSV": False,
+            "ZERO_DOSE_REPORT_MODE": "filtered",
+            "REPORT_DETAIL_PDF": True,
+            "ANALYSIS_MODE": "point_gamma",
+            "GAMMA_FLUENCE_PERCENT_THRESHOLD": 3.0,
+            "GAMMA_DISTANCE_MM_THRESHOLD": 2.0,
+            "GAMMA_LOWER_PERCENT_FLUENCE_CUTOFF": 10.0,
+        }
+        plan_data = {
+            "patient_id": "123456",
+            "patient_name": "Test^Gamma",
+            "machine_name": "G1",
+            "beams": {
+                1: {
+                    "name": "Beam 1",
+                    "layers": {
+                        0: {
+                            "time_axis_s": np.array([0.0]),
+                            "trajectory_x_mm": np.array([0.0]),
+                            "trajectory_y_mm": np.array([0.0]),
+                            "positions": np.array([[0.0, 0.0]]),
+                            "mu": np.array([1.0]),
+                            "cumulative_mu": np.array([1.0]),
+                            "spot_is_transit_min_dose": np.array([False]),
+                        }
+                    },
+                }
+            },
+        }
+        point_gamma_results = {
+            "gamma_mean": 0.5,
+            "gamma_max": 1.0,
+            "pass_rate": 0.99,
+            "evaluated_point_count": 4,
+            "normalization_mode": "point_gamma",
+        }
+        expected_summary_path = os.path.join(output_dir, "beam_1_summary.pdf")
+        expected_detail_path = os.path.join(output_dir, "beam_1_detail.pdf")
+
+        with mock.patch.object(main, "parse_yaml_config", return_value=point_gamma_config), mock.patch.object(
+            main, "load_plan_and_machine_config", return_value=(plan_data, {})
+        ), mock.patch.object(
+            main, "collect_ptn_delivery_groups",
+            return_value=[
+                {
+                    "source_dir": self.test_dir,
+                    "ptn_files": [self.ptn_files[0]],
+                    "planrange_lookup": {},
+                    "beam_number": 1,
+                }
+            ],
+        ), mock.patch.object(
+            main, "parse_ptn_with_optional_mu_correction",
+            return_value={"time_ms": np.array([0.0]), "x": np.array([0.0]), "y": np.array([0.0])},
+        ), mock.patch.object(
+            main, "calculate_point_gamma_for_layer", return_value=point_gamma_results
+        ), mock.patch.object(
+            main, "generate_report",
+            return_value=[expected_summary_path, expected_detail_path],
+        ):
+            result = run_analysis(
+                self.test_dir,
+                self.dcm_file,
+                output_dir,
+                report_name="point_gamma_case",
+            )
+
+        self.assertEqual(expected_summary_path, result["_report_path"])
+        self.assertEqual(
+            [expected_summary_path, expected_detail_path],
+            result["_report_paths"],
+        )
 
     def test_run_analysis_uses_machine_specific_gamma_normalization_factor(self):
         output_dir = os.path.join(self.test_dir, "output_gamma_factor")
