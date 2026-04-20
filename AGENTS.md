@@ -24,15 +24,15 @@ python main.py \
 
 Use these log datasets for testing:
 
-- `G1`: `/home/jokh38/MOQUI_SMC/data/SHI_log/55758663`
-- `G2`: `/home/jokh38/MOQUI_SMC/data/SHI_log/55061194`
+- `G1`: `/home/SMC/MOQUI_SMC/data/SHI_log/55758663`
+- `G2`: `/home/SMC/MOQUI_SMC/data/SHI_log/55061194`
 
 For `G1`, point `--log_dir` at the parent case directory:
 
 ```bash
 python main.py \
-  --log_dir /home/jokh38/MOQUI_SMC/data/SHI_log/55758663 \
-  --dcm_file /home/jokh38/MOQUI_SMC/data/SHI_log/55758663/RP.1.2.840.113854.116162735116359465886295179291233309871.1.dcm \
+  --log_dir /home/SMC/MOQUI_SMC/data/SHI_log/55758663 \
+  --dcm_file /home/SMC/MOQUI_SMC/data/SHI_log/55758663/RP.1.2.840.113854.116162735116359465886295179291233309871.1.dcm \
   --output ./output/55758663
 ```
 
