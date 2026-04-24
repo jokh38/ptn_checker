@@ -1,5 +1,45 @@
-numpy>=1.23
-scipy
-pydicom
-matplotlib
-pyyaml
+# Fully-pinned offline-installable requirements file
+# Install: pip install -r requirements.txt --no-index --find-links=C:\MOQUI_SMC\dependencies
+# Python: 3.10.12
+
+# ============================================================
+# Runtime dependencies (direct)
+# ============================================================
+numpy==2.2.6
+scipy==1.15.3
+pydicom==3.0.2
+matplotlib==3.10.9
+pyyaml==6.0.3
+
+# ============================================================
+# Runtime transitive dependencies
+# ============================================================
+# matplotlib transitive deps
+contourpy==1.3.2              # via matplotlib
+cycler==0.12.1                # via matplotlib
+fonttools==4.62.1             # via matplotlib
+kiwisolver==1.5.0             # via matplotlib
+packaging==26.1               # via matplotlib
+pillow==12.2.0                # via matplotlib
+pyparsing==3.3.2              # via matplotlib
+python_dateutil==2.9.0.post0  # via matplotlib
+six==1.17.0                   # via python_dateutil
+
+# ============================================================
+# Development / testing dependencies
+# ============================================================
+pytest==9.0.3
+
+# ============================================================
+# Development transitive dependencies
+# ============================================================
+pluggy==1.6.0                 # via pytest
+iniconfig==2.3.0              # via pytest
+colorama==0.4.6               # via pytest on Windows
+pygments==2.20.0              # via pytest
+
+# ============================================================
+# Missing from local cache (stdlib backports for Python 3.10)
+# ============================================================
+exceptiongroup==1.3.1         # via pytest - stdlib backport for Python <3.11
+tomli==2.4.1                  # via pytest - stdlib backport for Python <3.11
